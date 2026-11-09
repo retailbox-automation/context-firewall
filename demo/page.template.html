@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Example Pay - checkout (synthetic)</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 24px; max-width: 720px; }
+  #cf-panel { border: 1px solid #888; padding: 8px 12px; margin-bottom: 16px; font-weight: 600; }
+  fieldset { margin: 12px 0; }
+  label { display: block; margin: 6px 0; }
+  code { background: #eee; padding: 1px 4px; }
+</style>
+</head>
+<body>
+<div id="cf-panel">Context Firewall: local rules only (TEE not connected)</div>
+<h1>Secure checkout</h1>
+<p>Saved payment method on file: <code id="shown-card">{{CARD}}</code></p>
+<p>Tax ID on file (SSN): <code id="shown-ssn">{{SSN}}</code></p>
+<p>Integration key shown by the merchant dashboard: <code id="shown-key">{{KEY}}</code></p>
+<form id="checkout" onsubmit="return false">
+  <fieldset>
+    <legend>Billing</legend>
+    <label>Card number <input id="card" name="card" autocomplete="off"></label>
+    <label>SSN <input id="ssn" name="ssn" autocomplete="off"></label>
+    <label>API key <input id="api-key" name="api-key" autocomplete="off"></label>
+  </fieldset>
+  <button id="pay" type="submit">Place order</button>
+</form>
+</body>
+</html>
