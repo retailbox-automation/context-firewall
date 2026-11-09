@@ -32,8 +32,27 @@ describe('cards', () => {
       assert.deepEqual(detect(`ref ${n} end`), [], n);
     }
   });
-  it('does not take digits that sit inside a longer id', () => {
-    assert.deepEqual(detect(`ORD-${h.VISA}`), []);
+  it('a card-shaped number with a letter prefix is a card (cc-4111...), a longer digit run is not', () => {
+    assert.equal(only(`cc-${h.VISA}`).category, 'CARD');
+    assert.deepEqual(detect(h.VISA + '5'), []);
+  });
+  it('NBSP, thin space, dot separators and fullwidth digits', () => {
+    const groups = ['4111', '1111', '1111', '1111'];
+    for (const sep of ['\u00a0', '\u2009', '\u202f', '.']) {
+      const n = groups.join(sep);
+      const text = `card ${n} ok`;
+      const s = only(text);
+      assert.equal(text.slice(s.start, s.end), n, JSON.stringify(sep));
+    }
+    const wide = h.VISA.replace(/\d/g, (d) => String.fromCharCode(0xff10 + Number(d)));
+    const text = `card ${wide} ok`;
+    const s = only(text);
+    assert.equal(text.slice(s.start, s.end), wide);
+  });
+  it('several cards in one row are all found', () => {
+    for (const row of [`${h.VISA} ${h.MASTERCARD}`, `${h.VISA_SPACED} ${h.MASTERCARD}`, `${h.VISA}\n${h.AMEX}`]) {
+      assert.equal(detect(row).filter((x) => x.category === 'CARD').length, 2, row);
+    }
   });
   it('finds a card that follows other digits in the same group run', () => {
     const text = `2026 ${h.VISA_SPACED}`;
@@ -108,18 +127,58 @@ describe('keys', () => {
   it('Anthropic key is not also an OpenAI key', () => {
     assert.deepEqual(cats(h.ANTHROPIC), ['ANTHROPIC_KEY']);
   });
+  it('AWS secret in .env and shell forms (no spaces around =)', () => {
+    for (const text of [
+      `AWS_ACCESS_KEY_ID=${h.AWS_ID}\nAWS_SECRET_ACCESS_KEY=${h.AWS_SECRET}\n`,
+      `export AWS_ACCESS_KEY_ID=${h.AWS_ID}\nexport AWS_SECRET_ACCESS_KEY="${h.AWS_SECRET}"`,
+      `aws_secret_access_key = ${h.AWS_SECRET}\naws_access_key_id = ${h.AWS_ID}`,
+      `{"id":"${h.AWS_ID}","secret":"${h.AWS_SECRET}"}`,
+    ]) {
+      const secret = detect(text).find((x) => x.category === 'AWS_SECRET');
+      assert.ok(secret, text);
+      assert.equal(text.slice(secret.start, secret.end), h.AWS_SECRET);
+    }
+  });
   it('AWS secret only next to a key id, and not a git SHA', () => {
     const text = `id ${h.AWS_ID}\nsecret ${h.AWS_SECRET}`;
     assert.deepEqual(cats(text), ['AWS_KEY', 'AWS_SECRET']);
     assert.deepEqual(cats(`secret ${h.AWS_SECRET}`), []);
     assert.deepEqual(cats(`id ${h.AWS_ID}\ncommit ${'a1b2c3d4e5'.repeat(4)}`), ['AWS_KEY']);
   });
+  it('PEM: JSON-escaped newlines, legacy encrypted headers and quoted lines are redacted whole', () => {
+    const body = ['MIIEvQIBADANBgkqhkiG9w0BAQEFAASC', 'KgwggSkAgEAAoIBAQC7VJTUt9Us8cKj'];
+    const begin = h.j('-----BEGIN ', 'PRIVATE KEY-----');
+    const end = h.j('-----END ', 'PRIVATE KEY-----');
+    const forms = {
+      json: `{"private_key":"${[begin, ...body, end].join('\\n')}\\n","client":"x"}`,
+      legacy: [h.j('-----BEGIN RSA ', 'PRIVATE KEY-----'), 'Proc-Type: 4,ENCRYPTED', 'DEK-Info: AES-128-CBC,0A1B2C3D', '', ...body, h.j('-----END RSA ', 'PRIVATE KEY-----')].join('\n'),
+      quoted: [begin, ...body, end].map((l, i) => (i ? '> ' + l : l)).join('\n'),
+    };
+    for (const [name, text] of Object.entries(forms)) {
+      const spans = resolveOverlaps(detect(text)).filter((x) => x.category === 'PRIVATE_KEY');
+      assert.equal(spans.length, 1, name);
+      const covered = text.slice(spans[0]!.start, spans[0]!.end);
+      for (const line of body) assert.ok(covered.includes(line), `${name}: ${line}`);
+      assert.ok(covered.endsWith('PRIVATE KEY-----'), name);
+    }
+  });
+  it('PEM without END: escaped newlines and quoted lines are still covered up to the end of the body', () => {
+    const begin = h.j('-----BEGIN ', 'PRIVATE KEY-----');
+    const text = `{"k":"${begin}\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\nKgwggSkAgEAAoIBAQC7VJTUt9Us8cKj"}`;
+    const s = resolveOverlaps(detect(text)).find((x) => x.category === 'PRIVATE_KEY')!;
+    assert.ok(text.slice(s.start, s.end).includes('KgwggSkAgEAAoIBAQC7VJTUt9Us8cKj'));
+    assert.ok(!text.slice(s.start, s.end).includes('"}'));
+  });
+  it('public keys and certificates are not private keys', () => {
+    assert.deepEqual(detect(h.j('-----BEGIN ', 'PUBLIC KEY-----\nMIIBIjANBgkq\n-----END ', 'PUBLIC KEY-----')), []);
+  });
   it('PEM block is one span, with or without the END line', () => {
-    const s = only(`before\n${h.PEM}\nafter`);
+    const [s, ...rest] = resolveOverlaps(detect(`before\n${h.PEM}\nafter`));
+    assert.ok(s && rest.length === 0);
     assert.equal(s.category, 'PRIVATE_KEY');
     assert.ok(`before\n${h.PEM}\nafter`.slice(s.start, s.end).endsWith('PRIVATE KEY-----'));
     const truncated = h.PEM.split('\n').slice(0, 3).join('\n') + '\nand then prose.';
-    assert.equal(only(truncated).category, 'PRIVATE_KEY');
+    assert.equal(resolveOverlaps(detect(truncated))[0]?.category, 'PRIVATE_KEY');
   });
   it('JWT needs a header that decodes to JSON with alg', () => {
     const noAlg = [Buffer.from('{"typ":"JWT"}').toString('base64url'), 'e30', 'c2ln'].join('.');

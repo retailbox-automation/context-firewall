@@ -149,10 +149,17 @@ const KEY_RULES: KeyRule[] = [
   { category: 'STRIPE_KEY', rule: 'stripe-live', re: /(?:sk|rk)_live_[A-Za-z0-9]{16,}/g },
   { category: 'SLACK_TOKEN', rule: 'slack-xox', re: /xox[abprs]-[A-Za-z0-9-]{10,}/g },
   { category: 'GOOGLE_KEY', rule: 'google-aiza', re: /AIza[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])/g },
+  // whole block up to the nearest END marker, whatever sits between (escaped newlines, headers, quote prefixes)
   {
     category: 'PRIVATE_KEY',
     rule: 'pem-private-key',
-    re: /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[A-Za-z0-9+/=\s]*?(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----|(?![A-Za-z0-9+/=\s]))/g,
+    re: /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[\s\S]{0,8192}?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----/g,
+  },
+  // truncated block without END: BEGIN line plus body-like characters, capped
+  {
+    category: 'PRIVATE_KEY',
+    rule: 'pem-private-key-no-end',
+    re: /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----(?:(?!-----END)(?:\\[nr]|[A-Za-z0-9+/=\s>:,.-])){0,8192}/g,
   },
   {
     category: 'JWT',
@@ -171,7 +178,7 @@ function detectKeys(text: string, out: Span[]): void {
   }
 }
 
-const AWS_SECRET_RE = /(?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])/g;
+const AWS_SECRET_RE = /(?<![A-Za-z0-9/+])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+])/g;
 const AWS_WINDOW = 120;
 
 function detectAwsSecret(text: string, out: Span[]): void {
@@ -188,25 +195,33 @@ function detectAwsSecret(text: string, out: Span[]): void {
   }
 }
 
+const FULLWIDTH_DIGIT = /[\uFF10-\uFF19]/g;
+const SEPARATORS = ' \u00a0\u2009\u202f.-';
+const CARD_RUN = new RegExp(`(?<!\\d)(?<!\\d-)\\d(?:[${SEPARATORS}]{0,3}\\d){12,}(?!\\d)`, 'g');
+
 function detectCards(text: string, out: Span[]): void {
-  for (const m of text.matchAll(/(?<![\d-])\d(?:[ -]{0,3}\d){12,}(?!\d)/g)) {
+  // fullwidth digits become ASCII one for one, so offsets stay valid
+  const t = text.replace(FULLWIDTH_DIGIT, (c) => String.fromCharCode(c.charCodeAt(0) - 0xff10 + 48));
+  for (const m of t.matchAll(CARD_RUN)) {
     const s = m[0];
     const pos: number[] = [];
     for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) pos.push(i);
-    let found = false;
-    // try windows at separator boundaries, longest first (a longer digit run may carry extra groups)
-    for (let len = Math.min(19, pos.length); len >= 13 && !found; len--) {
-      for (let a = 0; a + len <= pos.length && !found; a++) {
-        const first = pos[a] as number;
-        const last = pos[a + len - 1] as number;
-        if (a > 0 && (pos[a - 1] as number) === first - 1) continue;
-        if (a + len < pos.length && (pos[a + len] as number) === last + 1) continue;
-        const digits = pos.slice(a, a + len).map((p) => s[p]).join('');
-        if (cardOk(digits)) {
-          out.push({ start: m.index + first, end: m.index + last + 1, category: 'CARD', confidence: 'sure', rule: 'card-luhn-iin' });
-          found = true;
+    // windows that start and end at a separator, longest first; several cards may share one run
+    let a = 0;
+    while (a + 13 <= pos.length) {
+      const first = pos[a] as number;
+      let hit = 0;
+      if (a === 0 || (pos[a - 1] as number) !== first - 1) {
+        for (let len = Math.min(19, pos.length - a); len >= 13 && !hit; len--) {
+          const last = pos[a + len - 1] as number;
+          if (a + len < pos.length && (pos[a + len] as number) === last + 1) continue;
+          if (cardOk(pos.slice(a, a + len).map((p) => s[p]).join(''))) {
+            out.push({ start: m.index + first, end: m.index + last + 1, category: 'CARD', confidence: 'sure', rule: 'card-luhn-iin' });
+            hit = len;
+          }
         }
       }
+      a += hit || 1;
     }
   }
 }
