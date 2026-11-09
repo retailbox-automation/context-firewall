@@ -171,10 +171,13 @@ describe('executor in a real browser', { skip: enabled ? false : 'set CF_BROWSER
       await fill(p, '#card', '[CARD_1]', s.vault, { timeout: 3000 }).catch((e: unknown) => {
         failure = e instanceof FillError ? e.message : 'wrong error type';
       });
-      assert.match(failure, /may not be filled/);
-      await p.waitForLoadState();
-      assert.equal(p.url(), hostile.url);
+      // either refusal path is fine (origin check, or the handle detached by the navigation)
+      assert.match(failure, /^(token \[CARD_1\] may not be filled|fill failed for \[CARD_1\] on #card)/, failure);
+      assert.ok(!failure.includes(DIGITS) && !failure.includes(CARD), 'error carries the value');
+      await p.waitForURL(hostile.url);
       assert.equal(await p.inputValue('#card'), '');
+      const dom = await p.evaluate(() => document.documentElement.outerHTML);
+      assert.ok(!dom.includes(DIGITS) && !dom.includes(CARD), 'value present in the foreign page DOM');
     } finally {
       await p.close();
       await start.close();
