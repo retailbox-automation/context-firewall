@@ -138,7 +138,7 @@ describe('executor in a real browser', { skip: enabled ? false : 'set CF_BROWSER
                 await p.goto(evil.url); // the page moves away after the check
                 return f === main ? racing.mainFrame() : f;
               },
-              fill: (v: string, opts?: { timeout?: number }) => h.fill(v, opts),
+              evaluate: (fn: never, v: string) => h.evaluate(fn, v),
             };
           },
         }),
@@ -182,6 +182,93 @@ describe('executor in a real browser', { skip: enabled ? false : 'set CF_BROWSER
       await p.close();
       await start.close();
       await hostile.close();
+    }
+  });
+
+  it('a focus handler that moves focus into an iframe does not redirect the value: it lands in the element, not in the frame', async () => {
+    const inner = await serveHtml('<!doctype html><input id="x" autofocus>');
+    const host = await serveHtml(
+      `<!doctype html><input id="card"><iframe id="w" src="${inner.url}"></iframe><script>document.getElementById('card').addEventListener('focus',function(){document.getElementById('w').focus()})</script>`,
+    );
+    const s = new Session();
+    await redact(`card ${CARD}`, { session: s, origin: originOf(host.url) });
+    const p = await browser.newPage();
+    try {
+      await p.goto(host.url);
+      const frameInput = p.frameLocator('#w').locator('#x');
+      await frameInput.waitFor();
+      await fill(p, '#card', '[CARD_1]', s.vault);
+      assert.equal(await p.inputValue('#card'), CARD);
+      assert.equal(await frameInput.inputValue(), '');
+    } finally {
+      await p.close();
+      await host.close();
+      await inner.close();
+    }
+  });
+
+  it('navigation after the owner check to a page with an autofocus field: nothing typed there', async () => {
+    const auto = await serveHtml('<!doctype html><input id="card" autofocus>');
+    const s = new Session();
+    await redact(`card ${CARD}`, { session: s, origin: originOf(shop.url) });
+    const p = await browser.newPage();
+    try {
+      await p.goto(shop.url);
+      const main = p.mainFrame();
+      const racing = {
+        url: () => p.url(),
+        mainFrame: () => ({
+          url: () => main.url(),
+          async waitForSelector(sel: string, o: { state: 'attached'; timeout: number }) {
+            const h = (await main.waitForSelector(sel, o))!;
+            return {
+              ownerFrame: async () => {
+                const f = await h.ownerFrame();
+                await p.goto(auto.url);
+                return f === main ? racing.mainFrame() : f;
+              },
+              evaluate: (fn: never, v: string) => h.evaluate(fn, v),
+            };
+          },
+        }),
+      };
+      await assert.rejects(fill(racing as never, '#card', '[CARD_1]', s.vault, { timeout: 1000 }), (e: Error) => {
+        assert.ok(e instanceof FillError && !e.message.includes(DIGITS));
+        return true;
+      });
+      assert.equal(await p.inputValue('#card'), '');
+      assert.ok(!(await p.evaluate(() => document.documentElement.outerHTML)).includes(DIGITS));
+    } finally {
+      await p.close();
+      await auto.close();
+    }
+  });
+
+  it('a controlled input (instance value tracker, input handler) receives the value through its input event', async () => {
+    const host = await serveHtml(
+      `<!doctype html><input id="ctl"><script>
+        var el=document.getElementById('ctl'); window.setterCalls=0; window.seen=[];
+        var desc=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
+        Object.defineProperty(el,'value',{configurable:true,get:function(){return desc.get.call(el)},set:function(v){window.setterCalls++;desc.set.call(el,v)}});
+        el.addEventListener('input',function(e){window.seen.push(desc.get.call(el))});
+        el.addEventListener('change',function(){window.seen.push('change')});
+      </script><textarea id="ta"></textarea>`,
+    );
+    const s = new Session();
+    await redact(`card ${CARD}`, { session: s, origin: originOf(host.url) });
+    const p = await browser.newPage();
+    try {
+      await p.goto(host.url);
+      await fill(p, '#ctl', '[CARD_1]', s.vault);
+      assert.deepEqual(await p.evaluate(() => (globalThis as never as { seen: string[] }).seen), [CARD, 'change']);
+      assert.equal(await p.evaluate(() => (globalThis as never as { setterCalls: number }).setterCalls), 0);
+      assert.equal(await p.inputValue('#ctl'), CARD);
+      await fill(p, '#ta', '[CARD_1]', s.vault);
+      assert.equal(await p.inputValue('#ta'), CARD);
+      await assert.rejects(fill(p, 'body', '[CARD_1]', s.vault), FillError);
+    } finally {
+      await p.close();
+      await host.close();
     }
   });
 });

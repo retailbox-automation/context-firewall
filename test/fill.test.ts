@@ -141,6 +141,16 @@ describe('fill', () => {
     assert.deepEqual(typed, []);
   });
 
+  it('a move that happens while the value is written is reported, without the value', async () => {
+    const s = await sessionWithCard();
+    const page = fakePage(SHOP, { redirectDuringFill: 'https://evil.example/' });
+    await assert.rejects(fill(page, '#card', '[CARD_1]', s.vault), (e: Error) => {
+      assert.ok(e instanceof FillError);
+      assert.equal(e.message, 'token [CARD_1]: the page moved while the value was being written');
+      return true;
+    });
+  });
+
   it('the lookup uses a short timeout by default', async () => {
     const s = await sessionWithCard();
     let seen = -1;

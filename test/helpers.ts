@@ -40,6 +40,8 @@ export interface FakeOptions {
   redirectDuringWait?: string;
   /** the main frame moves to this URL after the owner check; the handle stays attached */
   redirectAfterOwnerCheck?: string;
+  /** the main frame moves to this URL while the value is being written (after it went in) */
+  redirectDuringFill?: string;
   /** the element is detached after the owner check (navigation) */
   detachAfterOwnerCheck?: boolean;
   fillError?: (value: string) => Error;
@@ -66,10 +68,11 @@ export function fakePage(url: string, o: FakeOptions = {}): Fillable {
           if (o.detachAfterOwnerCheck) detached = true;
           return iframe ?? main;
         },
-        async fill(value: string) {
+        async evaluate(_fn: unknown, value: string) {
           if (detached) throw new Error('Element is not attached to the DOM');
           if (o.fillError) throw o.fillError(value);
           o.onFill?.(selector, value);
+          if (o.redirectDuringFill) current = o.redirectDuringFill;
         },
       };
     },
