@@ -49,6 +49,32 @@ describe('cards', () => {
     const s = only(text);
     assert.equal(text.slice(s.start, s.end), wide);
   });
+  it('tab, line break, ideographic space, fullwidth hyphen, en dash, underscore and wide gaps', () => {
+    const groups = ['4111', '1111', '1111', '1111'];
+    for (const sep of ['\t', '\n', '\r\n', '\u3000', '\uFF0D', '\u2013', '_', '    ', '      ']) {
+      const n = groups.join(sep);
+      const text = `card ${n} ok`;
+      const s = only(text);
+      assert.equal(text.slice(s.start, s.end), n, JSON.stringify(sep));
+    }
+    const wide = groups.join('\uFF0D').replace(/\d/g, (d) => String.fromCharCode(0xff10 + Number(d)));
+    assert.equal(only(`card ${wide}`).category, 'CARD');
+  });
+  it('multi-line numbers are not glued into a card unless Luhn and a known IIN say so', () => {
+    const texts = [
+      'Qty 3\nSKU 20481\nPhone 415 555 0134\nTotal 1249.00\nOrder 88213344',
+      '1001\n1002\n1003\n1004\n1005',
+      '2026 11 09\n12 30 45\n7788 9900',
+      [h.LUHN_BAD.slice(0, 4), h.LUHN_BAD.slice(4, 8), h.LUHN_BAD.slice(8, 12), h.LUHN_BAD.slice(12)].join('\n'),
+      h.LUHN_OK_UNKNOWN_IIN.replace(/(.{4})/g, '$1\n'),
+      '1234 5678 9012 3456',
+      'Row 1: 4111\nRow 2: 1111\nRow 3: 1111\nRow 4: 1111',
+      '4111\n\n\n\n\n\n\n1111\n1111\n1111',
+    ];
+    for (const t of texts) assert.deepEqual(detect(t).filter((x) => x.category === 'CARD'), [], JSON.stringify(t));
+    const ok = [h.VISA.slice(0, 4), h.VISA.slice(4, 8), h.VISA.slice(8, 12), h.VISA.slice(12)].join('\n');
+    assert.equal(only(ok).category, 'CARD');
+  });
   it('several cards in one row are all found', () => {
     for (const row of [`${h.VISA} ${h.MASTERCARD}`, `${h.VISA_SPACED} ${h.MASTERCARD}`, `${h.VISA}\n${h.AMEX}`]) {
       assert.equal(detect(row).filter((x) => x.category === 'CARD').length, 2, row);
@@ -138,6 +164,22 @@ describe('keys', () => {
       assert.ok(secret, text);
       assert.equal(text.slice(secret.start, secret.end), h.AWS_SECRET);
     }
+  });
+  it('AWS secret by its label alone, far from any key id', () => {
+    const far = 'x'.repeat(500);
+    for (const text of [
+      `AWS_SECRET_ACCESS_KEY=${h.AWS_SECRET}\n`,
+      `${far}\nexport AWS_SECRET_ACCESS_KEY="${h.AWS_SECRET}"\n${far}`,
+      `{"SecretAccessKey": "${h.AWS_SECRET}"}`,
+      `aws_secret_access_key: ${h.AWS_SECRET}`,
+    ]) {
+      const secret = detect(text).filter((x) => x.category === 'AWS_SECRET');
+      assert.equal(secret.length, 1, text.slice(0, 60));
+      assert.equal(text.slice(secret[0]!.start, secret[0]!.end), h.AWS_SECRET);
+      assert.equal(secret[0]!.confidence, 'sure');
+    }
+    assert.deepEqual(detect(`AWS_SECRET_ACCESS_KEY=${h.AWS_SECRET.slice(0, 39)}`), []);
+    assert.deepEqual(detect(`secret_access_key is rotated monthly ${h.AWS_SECRET}`).filter((x) => x.category === 'AWS_SECRET'), []);
   });
   it('AWS secret only next to a key id, and not a git SHA', () => {
     const text = `id ${h.AWS_ID}\nsecret ${h.AWS_SECRET}`;

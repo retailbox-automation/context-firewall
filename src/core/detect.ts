@@ -181,7 +181,14 @@ function detectKeys(text: string, out: Span[]): void {
 const AWS_SECRET_RE = /(?<![A-Za-z0-9/+])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+])/g;
 const AWS_WINDOW = 120;
 
+// the label itself marks the value, wherever it sits (no key id needed nearby)
+const AWS_SECRET_LABEL = /secret_?access_?key["']?\s*[:=]\s*["']?([A-Za-z0-9/+]{40})(?![A-Za-z0-9/+])/gid;
+
 function detectAwsSecret(text: string, out: Span[]): void {
+  for (const m of text.matchAll(AWS_SECRET_LABEL)) {
+    const [from, to] = (m.indices as unknown as [number, number][])[1] as [number, number];
+    out.push({ start: from, end: to, category: 'AWS_SECRET', confidence: 'sure', rule: 'aws-secret-by-label' });
+  }
   for (const k of out.filter((s) => s.category === 'AWS_KEY')) {
     const lo = Math.max(0, k.start - AWS_WINDOW);
     const hi = Math.min(text.length, k.end + AWS_WINDOW);
@@ -190,14 +197,16 @@ function detectAwsSecret(text: string, out: Span[]): void {
       const end = start + 40;
       if (start < k.end && end > k.start) continue;
       if (/^[0-9a-fA-F]{40}$/.test(m[0]) || !/\d/.test(m[0]) || !/[a-z]/.test(m[0]) || !/[A-Z]/.test(m[0])) continue;
+      if (out.some((o) => o.category === 'AWS_SECRET' && o.start === start)) continue;
       out.push({ start, end, category: 'AWS_SECRET', confidence: 'sure', rule: 'aws-secret-near-key-id' });
     }
   }
 }
 
 const FULLWIDTH_DIGIT = /[\uFF10-\uFF19]/g;
-const SEPARATORS = ' \u00a0\u2009\u202f.-';
-const CARD_RUN = new RegExp(`(?<!\\d)(?<!\\d-)\\d(?:[${SEPARATORS}]{0,3}\\d){12,}(?!\\d)`, 'g');
+// separators seen in pasted or OCR'd numbers: spaces of all widths, tab, line breaks, dots, dashes, underscore
+const SEPARATORS = '[ \\t\\r\\n\\u00a0\\u2009\\u202f\\u3000._\\u2013\\uFF0D-]';
+const CARD_RUN = new RegExp(`(?<!\\d)(?<!\\d-)\\d(?:${SEPARATORS}{0,6}\\d){12,}(?!\\d)`, 'g');
 
 function detectCards(text: string, out: Span[]): void {
   // fullwidth digits become ASCII one for one, so offsets stay valid
