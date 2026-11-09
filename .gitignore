@@ -1,0 +1,26 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials*.json
+service-account*.json
+**/near-credentials/
+.near-credentials/
+.claude/settings.local.json
+
+# build
+target/
+node_modules/
+dist/
+pkg/
+*.wasm
+!web/public/**/*.wasm
+
+# misc
+.DS_Store
+__pycache__/
+node_modules/
+demo-out/
+*.log
