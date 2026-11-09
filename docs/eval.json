@@ -1,0 +1,158 @@
+{
+  "seed": 20261109,
+  "size": 300,
+  "version": "0.1.0",
+  "categories": {
+    "CARD": {
+      "truth": 300,
+      "found": 300,
+      "tp": 300,
+      "fp": 0,
+      "recall": 1,
+      "precision": 1
+    },
+    "US_SSN": {
+      "truth": 300,
+      "found": 300,
+      "tp": 300,
+      "fp": 0,
+      "recall": 1,
+      "precision": 1
+    },
+    "US_ITIN": {
+      "truth": 300,
+      "found": 300,
+      "tp": 300,
+      "fp": 0,
+      "recall": 1,
+      "precision": 1
+    },
+    "US_EIN": {
+      "truth": 300,
+      "found": 436,
+      "tp": 300,
+      "fp": 136,
+      "recall": 1,
+      "precision": 0.6881
+    },
+    "IBAN": {
+      "truth": 300,
+      "found": 300,
+      "tp": 300,
+      "fp": 0,
+      "recall": 1,
+      "precision": 1
+    },
+    "AWS_KEY": {
+      "truth": 300,
+      "found": 300,
+      "tp": 300,
+      "fp": 0,
+      "recall": 1,
+      "precision": 1
+    },
+    "AWS_SECRET": {
+      "truth": 300,
+      "found": 281,
+      "tp": 281,
+      "fp": 0,
+      "recall": 0.9367,
+      "precision": 1
+    },
+    "OPENAI_KEY": {
+      "truth": 300,
+      "found": 283,
+      "tp": 283,
+      "fp": 0,
+      "recall": 0.9433,
+      "precision": 1
+    },
+    "ANTHROPIC_KEY": {
+      "truth": 300,
+      "found": 285,
+      "tp": 285,
+      "fp": 0,
+      "recall": 0.95,
+      "precision": 1
+    },
+    "GITHUB_TOKEN": {
+      "truth": 300,
+      "found": 300,
+      "tp": 300,
+      "fp": 0,
+      "recall": 1,
+      "precision": 1
+    },
+    "STRIPE_KEY": {
+      "truth": 300,
+      "found": 300,
+      "tp": 300,
+      "fp": 0,
+      "recall": 1,
+      "precision": 1
+    },
+    "SLACK_TOKEN": {
+      "truth": 300,
+      "found": 300,
+      "tp": 300,
+      "fp": 0,
+      "recall": 1,
+      "precision": 1
+    },
+    "GOOGLE_KEY": {
+      "truth": 300,
+      "found": 300,
+      "tp": 300,
+      "fp": 0,
+      "recall": 1,
+      "precision": 1
+    },
+    "PRIVATE_KEY": {
+      "truth": 300,
+      "found": 300,
+      "tp": 300,
+      "fp": 0,
+      "recall": 1,
+      "precision": 1
+    },
+    "JWT": {
+      "truth": 300,
+      "found": 300,
+      "tp": 300,
+      "fp": 0,
+      "recall": 1,
+      "precision": 1
+    },
+    "OTP": {
+      "truth": 300,
+      "found": 298,
+      "tp": 296,
+      "fp": 2,
+      "recall": 0.9867,
+      "precision": 0.9933
+    },
+    "KNOWN_SECRET": {
+      "truth": 300,
+      "found": 289,
+      "tp": 289,
+      "fp": 0,
+      "recall": 0.9633,
+      "precision": 1
+    }
+  },
+  "anyCategoryRecall": 0.9871,
+  "byGenre": {
+    "payment-page": {
+      "truth": 1700,
+      "recall": 1
+    },
+    "email": {
+      "truth": 1700,
+      "recall": 1
+    },
+    "ocr": {
+      "truth": 1700,
+      "recall": 0.9612
+    }
+  }
+}
