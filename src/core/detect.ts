@@ -182,10 +182,12 @@ const AWS_SECRET_RE = /(?<![A-Za-z0-9/+])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+])/g;
 const AWS_WINDOW = 120;
 
 // The label itself marks the value, wherever it sits (no key id needed nearby). Words may be joined
-// by space, underscore or nothing; the value follows after : or = or only whitespace, optionally
-// after a `value:` line (Kubernetes name/value pairs). A bare `secret_key` also needs a mixed-case value.
+// by space, underscore or nothing. Between label and value: whitespace, quotes, `:` `=` `=>` `|` `>` `-`
+// or markup tags (JSON, .env, CSV, markdown tables, XML, HTML cells), optionally followed by a `value:`
+// line (Kubernetes name/value pairs). Letters between label and value end the match, so prose does not
+// count. A bare `secret_key` also needs a mixed-case value.
 const AWS_SECRET_LABEL =
-  /(secret(?:[ _]?access)?[ _]?key)["']?(?:[ \t]*[:=][ \t]*|\s{1,60}?)(?:(?:value|default|secret)\s*[:=]\s*)?["']?([A-Za-z0-9/+]{40})(?![A-Za-z0-9/+])/gid;
+  /(secret(?:[ _]?access)?[ _]?key)(?:\s|["'|:=>-]|<\/?[A-Za-z][^<>]{0,30}>){1,80}?(?:(?:value|default|secret)\s*[:=]\s*)?["']?([A-Za-z0-9/+]{40})(?![A-Za-z0-9/+])/gid;
 
 function detectAwsSecret(text: string, out: Span[]): void {
   for (const m of text.matchAll(AWS_SECRET_LABEL)) {
@@ -232,22 +234,29 @@ function detectCards(text: string, out: Span[]): void {
     const s = m[0];
     const pos: number[] = [];
     for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) pos.push(i);
-    // windows that start and end at a separator, longest first; several cards may share one run
-    let a = 0;
-    while (a + 13 <= pos.length) {
-      const first = pos[a] as number;
-      let hit = 0;
-      if (a === 0 || (pos[a - 1] as number) !== first - 1) {
-        for (let len = Math.min(19, pos.length - a); len >= 13 && !hit; len--) {
-          const last = pos[a + len - 1] as number;
-          if (a + len < pos.length && (pos[a + len] as number) === last + 1) continue;
-          if (layoutOk(pos, a, len) && cardOk(pos.slice(a, a + len).map((p) => s[p]).join(''))) {
-            out.push({ start: m.index + first, end: m.index + last + 1, category: 'CARD', confidence: 'sure', rule: 'card-luhn-iin' });
-            hit = len;
-          }
+    // Candidate windows start and end at a separator. A window inside one line beats a window that
+    // crosses a line break (the number on the line above is not part of the card); then the longer
+    // one, then the earlier one. Windows are taken greedily without overlap, so several cards can
+    // share one run.
+    const cands: { a: number; len: number; multiline: boolean }[] = [];
+    for (let a = 0; a + 13 <= pos.length; a++) {
+      if (a > 0 && (pos[a - 1] as number) === (pos[a] as number) - 1) continue;
+      for (let len = Math.min(19, pos.length - a); len >= 13; len--) {
+        const last = pos[a + len - 1] as number;
+        if (a + len < pos.length && (pos[a + len] as number) === last + 1) continue;
+        if (layoutOk(pos, a, len) && cardOk(pos.slice(a, a + len).map((p) => s[p]).join(''))) {
+          cands.push({ a, len, multiline: /[\r\n]/.test(s.slice(pos[a] as number, last)) });
         }
       }
-      a += hit || 1;
+    }
+    cands.sort((x, y) => Number(x.multiline) - Number(y.multiline) || y.len - x.len || x.a - y.a);
+    const taken: { from: number; to: number }[] = [];
+    for (const c of cands) {
+      const from = pos[c.a] as number;
+      const to = (pos[c.a + c.len - 1] as number) + 1;
+      if (taken.some((t) => from < t.to && to > t.from)) continue;
+      taken.push({ from, to });
+      out.push({ start: m.index + from, end: m.index + to, category: 'CARD', confidence: 'sure', rule: 'card-luhn-iin' });
     }
   }
 }

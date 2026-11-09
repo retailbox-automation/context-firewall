@@ -87,6 +87,20 @@ describe('cards', () => {
       assert.ok(t.slice(c[0]!.start, c[0]!.end).startsWith('3782'), JSON.stringify(sep));
     }
   });
+  it('a number on the line above never swallows the front of a card on the next line (4000-4999 prefixes)', () => {
+    const card = [h.VISA.slice(0, 4), h.VISA.slice(4, 8), h.VISA.slice(8, 12), h.VISA.slice(12)].join(' ');
+    let multi = 0;
+    for (let prefix = 4000; prefix <= 4999; prefix++) {
+      const text = `Ref ${prefix}\n${card}`;
+      const cards = detect(text).filter((x) => x.category === 'CARD');
+      assert.equal(cards.length, 1, text);
+      assert.equal(text.slice(cards[0]!.start, cards[0]!.end), card, text);
+      multi++;
+    }
+    assert.equal(multi, 1000);
+    // the card is still found when there is nothing valid on its own line
+    assert.equal(detect('4111\n1111\n1111\n1111').filter((x) => x.category === 'CARD').length, 1);
+  });
   it('a column of four 4-digit numbers is a card only when Luhn and IIN say so', () => {
     for (const col of ['1001\n1002\n1003\n1004', '4111\n1111\n1111\n1112', '2024\n0615\n0830\n1999', '4111\n1111\n1111\n1111\n9999']) {
       const c = detect(col).filter((x) => x.category === 'CARD');
@@ -224,6 +238,23 @@ describe('keys', () => {
     assert.deepEqual(detect(`secret_key = "${'a1b2c3d4e5'.repeat(4)}"`), []);
     assert.deepEqual(detect(`secret key rotated monthly ${h.AWS_SECRET}`).filter((x) => x.category === 'AWS_SECRET'), []);
     assert.deepEqual(detect(`aws secret access key ${h.AWS_SECRET.slice(0, 38)}`), []);
+  });
+  it('AWS secret by label: XML, markdown table, HTML cell, dash and arrow separators', () => {
+    const forms = [
+      `<SecretAccessKey>${h.AWS_SECRET}</SecretAccessKey>`,
+      `| Secret access key | ${h.AWS_SECRET} |`,
+      `<tr><td>Secret access key</td><td>${h.AWS_SECRET}</td></tr>`,
+      `Secret access key - ${h.AWS_SECRET}`,
+      `secret_access_key => ${h.AWS_SECRET}`,
+      `'secret_key' => "${h.AWS_SECRET}"`,
+    ];
+    for (const text of forms) {
+      const found = detect(text).filter((x) => x.category === 'AWS_SECRET');
+      assert.equal(found.length, 1, text);
+      assert.equal(text.slice(found[0]!.start, found[0]!.end), h.AWS_SECRET, text);
+    }
+    assert.deepEqual(detect(`| Secret access key | ${h.AWS_SECRET.slice(0, 39)} |`), []);
+    assert.deepEqual(detect(`secret key is documented in ${h.AWS_SECRET}`).filter((x) => x.category === 'AWS_SECRET'), []);
   });
   it('AWS secret only next to a key id, and not a git SHA', () => {
     const text = `id ${h.AWS_ID}\nsecret ${h.AWS_SECRET}`;
