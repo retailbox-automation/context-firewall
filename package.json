@@ -1,0 +1,28 @@
+{
+  "name": "context-firewall",
+  "version": "0.1.0",
+  "description": "Keeps card numbers, tax IDs, API keys and one-time codes out of what an AI agent's model sees.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test test/*.test.ts",
+    "test:browser": "CF_BROWSER=1 node --test test/browser/*.test.ts",
+    "eval": "node src/eval/run.ts",
+    "demo": "node demo/run.ts",
+    "start:http": "node src/http/server.ts",
+    "start:mcp": "node src/mcp/server.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "playwright-core": "1.65.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}
