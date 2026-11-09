@@ -118,34 +118,81 @@ describe('mcp server (in memory)', () => {
     assert.equal(u.isError, true);
   });
 
-  it('fill uses the vault of the same session and never returns the value; forget empties it', async () => {
+  const OPEN = (typed: string[], opened: string[], closed: { n: number }, url: string) => ({
+    cdpUrl: 'http://127.0.0.1:9',
+    openPage: async (_cdp: string, origin: string) => {
+      opened.push(origin);
+      return { page: { url: () => url, fill: async (_s: string, v: string) => void typed.push(v) }, close: async () => void closed.n++ };
+    },
+  });
+
+  it('fill uses the vault of the same session, on the bound origin, and never returns the value; forget empties it', async () => {
     const typed: string[] = [];
-    let closed = 0;
-    const c = await connect(new Session(), {
-      openPage: async () => ({ page: { fill: async (_s: string, v: string) => void typed.push(v) }, close: async () => void closed++ }),
-    });
-    await c.callTool({ name: 'redact', arguments: { text: `card ${h.VISA}` } });
-    const ok: any = await c.callTool({ name: 'fill', arguments: { selector: '#card', token: '[CARD_1]', cdpUrl: 'http://127.0.0.1:1' } });
+    const opened: string[] = [];
+    const closed = { n: 0 };
+    const c = await connect(new Session(), OPEN(typed, opened, closed, 'https://shop.example/pay'));
+    await c.callTool({ name: 'redact', arguments: { text: `card ${h.VISA}`, source: 'https://shop.example/pay?step=2' } });
+    const ok: any = await c.callTool({ name: 'fill', arguments: { selector: '#card', token: '[CARD_1]' } });
     assert.ok(!ok.isError && !text(ok).includes(h.VISA));
     assert.deepEqual(typed, [h.VISA]);
-    assert.equal(closed, 1);
+    assert.deepEqual(opened, ['https://shop.example']);
+    assert.equal(closed.n, 1);
     await c.callTool({ name: 'forget', arguments: {} });
-    const gone: any = await c.callTool({ name: 'fill', arguments: { selector: '#card', token: '[CARD_1]', cdpUrl: 'http://127.0.0.1:1' } });
+    const gone: any = await c.callTool({ name: 'fill', arguments: { selector: '#card', token: '[CARD_1]' } });
     assert.equal(gone.isError, true);
     assert.ok(text(gone).includes('[CARD_1]') && !text(gone).includes(h.VISA));
     assert.equal(typed.length, 1);
-    assert.equal(closed, 2);
   });
 
-  it('fill without a CDP url is an error', async () => {
+  it('a tab on another origin is refused without the value', async () => {
+    const typed: string[] = [];
+    const c = await connect(new Session(), OPEN(typed, [], { n: 0 }, 'https://evil.example/'));
+    await c.callTool({ name: 'redact', arguments: { text: `card ${h.VISA}`, source: 'https://shop.example/' } });
+    const r: any = await c.callTool({ name: 'fill', arguments: { selector: '#card', token: '[CARD_1]' } });
+    assert.equal(r.isError, true);
+    assert.ok(!text(r).includes(h.VISA));
+    assert.deepEqual(typed, []);
+  });
+
+  it('a token redacted without a source cannot be filled', async () => {
+    const opened: string[] = [];
+    const c = await connect(new Session(), OPEN([], opened, { n: 0 }, 'https://shop.example/'));
+    await c.callTool({ name: 'redact', arguments: { text: `card ${h.VISA}` } });
+    const r: any = await c.callTool({ name: 'fill', arguments: { selector: '#card', token: '[CARD_1]' } });
+    assert.equal(r.isError, true);
+    assert.match(text(r), /no origin binding/);
+    assert.deepEqual(opened, []);
+  });
+
+  it('cdpUrl in the arguments is rejected and never used; the schema does not offer it', async () => {
+    const opened: string[] = [];
+    const c = await connect(new Session(), OPEN([], opened, { n: 0 }, 'https://shop.example/'));
+    const fillTool = (await c.listTools()).tools.find((t) => t.name === 'fill');
+    assert.ok(!('cdpUrl' in (fillTool?.inputSchema.properties ?? {})));
+    await c.callTool({ name: 'redact', arguments: { text: `card ${h.VISA}`, source: 'https://shop.example/' } });
+    const r: any = await c.callTool({ name: 'fill', arguments: { selector: '#card', token: '[CARD_1]', cdpUrl: 'http://203.0.113.9:9222' } });
+    assert.equal(r.isError, true);
+    assert.ok(!text(r).includes('203.0.113.9'));
+    assert.deepEqual(opened, []);
+  });
+
+  it('the operator endpoint must be configured and local', async () => {
     const saved = process.env.CF_CDP_URL;
-    delete process.env.CF_CDP_URL;
     try {
-      const c = await connect();
-      const r: any = await c.callTool({ name: 'fill', arguments: { selector: '#a', token: '[CARD_1]' } });
-      assert.equal(r.isError, true);
+      for (const [env, expect] of [[undefined, /no browser endpoint/], ['http://203.0.113.9:9222', /this machine/], ['garbage', /not a URL/]] as const) {
+        if (env === undefined) delete process.env.CF_CDP_URL;
+        else process.env.CF_CDP_URL = env;
+        const opened: string[] = [];
+        const c = await connect(new Session(), { openPage: OPEN([], opened, { n: 0 }, 'https://shop.example/').openPage });
+        await c.callTool({ name: 'redact', arguments: { text: `card ${h.VISA}`, source: 'https://shop.example/' } });
+        const r: any = await c.callTool({ name: 'fill', arguments: { selector: '#card', token: '[CARD_1]' } });
+        assert.equal(r.isError, true);
+        assert.match(text(r), expect);
+        assert.deepEqual(opened, []);
+      }
     } finally {
       if (saved !== undefined) process.env.CF_CDP_URL = saved;
+      else delete process.env.CF_CDP_URL;
     }
   });
 });

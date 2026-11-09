@@ -3,9 +3,10 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Session, redact } from '../src/core/redact.ts';
+import { Session, originOf, redact } from '../src/core/redact.ts';
 import { fill } from '../src/executor/fill.ts';
 import { launchChrome } from '../src/executor/launch.ts';
+import { serveHtml } from './serve.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'demo-out');
@@ -26,16 +27,17 @@ const html = readFileSync(join(root, 'demo', 'page.template.html'), 'utf8')
   .replace('{{SSN}}', SSN)
   .replace('{{KEY}}', KEY);
 
+const site = await serveHtml(html);
 const browser = await launchChrome();
 let status = 'ok';
 try {
   const page = await browser.newPage();
-  await page.setContent(html);
+  await page.goto(site.url);
   const panel = (await page.locator('#cf-panel').innerText()).trim();
   const pageText = await page.locator('body').innerText();
 
   const session = new Session();
-  const { text: safeText, findings } = await redact(pageText, { session });
+  const { text: safeText, findings } = await redact(pageText, { session, origin: originOf(page.url()) });
 
   const transcript: object[] = [{ role: 'tool', name: 'page_text', mode: 'local', content: safeText }];
   for (const f of findings) {
@@ -64,6 +66,7 @@ try {
   console.log(`\nform fields filled by the executor: card=${filled.card} ssn=${filled.ssn} api-key=${filled.key}`);
 } finally {
   await browser.close();
+  await site.close();
 }
 
 const digits = CARD.replaceAll(' ', '');

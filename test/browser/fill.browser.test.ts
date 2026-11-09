@@ -7,6 +7,8 @@ import type { Browser, Page } from 'playwright-core';
 import { Session, redact } from '../../src/core/redact.ts';
 import { FillError, fill } from '../../src/executor/fill.ts';
 import { launchChrome } from '../../src/executor/launch.ts';
+import { serveHtml } from '../../demo/serve.ts';
+import { originOf } from '../../src/core/redact.ts';
 import { j } from '../helpers.ts';
 
 const enabled = process.env.CF_BROWSER === '1';
@@ -17,6 +19,8 @@ const DIGITS = CARD.replaceAll(' ', '');
 describe('executor in a real browser', { skip: enabled ? false : 'set CF_BROWSER=1 (npm run test:browser)' }, () => {
   let browser: Browser;
   let page: Page;
+  let shop: Awaited<ReturnType<typeof serveHtml>>;
+  let evil: Awaited<ReturnType<typeof serveHtml>>;
   const logs: string[] = [];
   const realOut = process.stdout.write.bind(process.stdout);
   const realErr = process.stderr.write.bind(process.stderr);
@@ -26,17 +30,20 @@ describe('executor in a real browser', { skip: enabled ? false : 'set CF_BROWSER
     page = await browser.newPage();
     page.on('console', (m) => logs.push(m.text()));
     page.on('pageerror', (e) => logs.push(e.message));
-    await page.setContent(
-      readFileSync(join(root, 'demo', 'page.template.html'), 'utf8').replace('{{CARD}}', CARD).replace('{{SSN}}', 'x').replace('{{KEY}}', 'y'),
-    );
+    const html = readFileSync(join(root, 'demo', 'page.template.html'), 'utf8').replace('{{CARD}}', CARD).replace('{{SSN}}', 'x').replace('{{KEY}}', 'y');
+    shop = await serveHtml(html);
+    evil = await serveHtml(html);
+    await page.goto(shop.url);
   });
   after(async () => {
     await browser?.close();
+    await shop?.close();
+    await evil?.close();
   });
 
   it('fills the field from a placeholder; digits never reach stdout, stderr, page logs or errors', async () => {
     const session = new Session();
-    const redacted = await redact(await page.locator('body').innerText(), { session });
+    const redacted = await redact(await page.locator('body').innerText(), { session, origin: originOf(page.url()) });
     assert.ok(redacted.text.includes('[CARD_1]') && !redacted.text.includes(DIGITS));
 
     const captured: string[] = [];
@@ -72,8 +79,21 @@ describe('executor in a real browser', { skip: enabled ? false : 'set CF_BROWSER
   it('a hidden-key placeholder fills a second field', async () => {
     const s = new Session();
     const key = j('sk', '_live_', 'Q7x2LmN9pR4sT6vW8yB1cD3f');
-    await redact(`key ${key}`, { session: s });
+    await redact(`key ${key}`, { session: s, origin: originOf(page.url()) });
     await fill(page, '#api-key', '[STRIPE_KEY_1]', s.vault);
     assert.equal(await page.inputValue('#api-key'), key);
+  });
+
+  it('a page on another origin (another port) is refused and stays empty', async () => {
+    const s = new Session();
+    await redact(`card ${CARD}`, { session: s, origin: originOf(shop.url) });
+    const other = await browser.newPage();
+    try {
+      await other.goto(evil.url);
+      await assert.rejects(fill(other, '#card', '[CARD_1]', s.vault), /may not be filled on this page/);
+      assert.equal(await other.inputValue('#card'), '');
+    } finally {
+      await other.close();
+    }
   });
 });

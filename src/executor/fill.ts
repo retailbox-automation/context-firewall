@@ -1,4 +1,4 @@
-import { getDefaultSession } from '../core/redact.ts';
+import { getDefaultSession, originOf } from '../core/redact.ts';
 import type { Vault } from '../core/redact.ts';
 
 /** Messages carry the token and the selector, never the value. */
@@ -13,11 +13,12 @@ export const TOKEN_RE = /^\[[A-Z_]+_\d+\]$/;
 
 /** The part of a Playwright Page the executor needs. */
 export interface Fillable {
+  url(): string;
   fill(selector: string, value: string, options?: { timeout?: number }): Promise<void>;
 }
 
 /**
- * The only place where a vault value is read. The value goes straight into the page;
+ * The only place where a vault value is read, and only on the origin the value came from. The value goes straight into the page;
  * it is not returned, logged, or put into an error.
  */
 export async function fill(
@@ -31,6 +32,9 @@ export async function fill(
   if (typeof token !== 'string' || !TOKEN_RE.test(token)) throw new FillError('fill needs a placeholder like [CARD_1]');
   const value = vault.get(token);
   if (value === undefined) throw new FillError(`unknown token ${token}`);
+  const bound = vault.originOf(token);
+  if (bound === undefined) throw new FillError(`token ${token} has no origin binding`);
+  if (originOf(page.url()) !== bound) throw new FillError(`token ${token} may not be filled on this page`);
   try {
     await page.fill(selector, value, options);
   } catch {

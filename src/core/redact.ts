@@ -8,8 +8,14 @@ import type { Category, Confidence, Span } from './detect.ts';
 /** token -> raw value, in process memory only. Only the executor reads values back. */
 export class Vault {
   #values = new Map<string, string>();
-  set(token: string, value: string): void {
+  #origins = new Map<string, string>();
+  set(token: string, value: string, origin?: string): void {
     this.#values.set(token, value);
+    if (origin !== undefined) this.#origins.set(token, origin);
+  }
+  /** the page origin the value was seen on; undefined when the source was not given */
+  originOf(token: string): string | undefined {
+    return this.#origins.get(token);
   }
   get(token: string): string | undefined {
     return this.#values.get(token);
@@ -19,6 +25,7 @@ export class Vault {
   }
   forget(): void {
     this.#values.clear();
+    this.#origins.clear();
   }
   toJSON(): { size: number } {
     return { size: this.#values.size };
@@ -35,15 +42,15 @@ export class Session {
   #counters = new Map<Category, number>();
   #tokens = new Map<string, string>();
 
-  tokenFor(category: Category, value: string): string {
-    const key = `${category}\0${canonical(category, value)}`;
+  tokenFor(category: Category, value: string, origin?: string): string {
+    const key = `${category}\0${origin ?? ''}\0${canonical(category, value)}`;
     let token = this.#tokens.get(key);
     if (token === undefined) {
       const n = (this.#counters.get(category) ?? 0) + 1;
       this.#counters.set(category, n);
       token = `[${category}_${n}]`;
       this.#tokens.set(key, token);
-      this.vault.set(token, value);
+      this.vault.set(token, value, origin);
     }
     return token;
   }
@@ -83,6 +90,8 @@ export interface RedactResult {
 export interface RedactOptions {
   classifier?: Classifier;
   session?: Session;
+  /** origin of the page the text came from; a placeholder can only be filled back on this origin */
+  origin?: string;
 }
 
 let defaultSession = new Session();
@@ -110,7 +119,7 @@ export async function redact(text: string, opts: RedactOptions = {}): Promise<Re
   const findings: Finding[] = [];
   for (const s of resolveOverlaps(tagged)) {
     const value = text.slice(s.start, s.end);
-    const token = session.tokenFor(s.category, value);
+    const token = session.tokenFor(s.category, value, opts.origin);
     out += text.slice(cursor, s.start) + token;
     cursor = s.end;
     findings.push({
@@ -123,4 +132,15 @@ export async function redact(text: string, opts: RedactOptions = {}): Promise<Re
     });
   }
   return { text: out + text.slice(cursor), findings };
+}
+
+/** `http://host:port` for an http(s) URL; undefined for anything else (file:, about:blank, garbage). */
+export function originOf(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    const u = new URL(url);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.origin : undefined;
+  } catch {
+    return undefined;
+  }
 }
