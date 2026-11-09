@@ -86,6 +86,23 @@ describe('redact', () => {
   });
 });
 
+describe('ambiguous card runs', () => {
+  it('no digit of the run survives, for every 4-digit prefix before a card on the same line', async () => {
+    const card = ['4111', '1111', '1111', '1111'].join(' ');
+    const session = new Session();
+    let n = 0;
+    for (let prefix = 1000; prefix <= 9999; prefix++) {
+      const r = await redact(`Ref ${prefix} ${card}`, { session });
+      assert.equal(r.text.replace(/\[CARD_\d+\]/, ''), 'Ref ', `prefix ${prefix}`);
+      assert.ok(!/\d{4}/.test(r.text.replace(/\[CARD_\d+\]/g, '')), `prefix ${prefix}`);
+      assert.equal(r.findings.length, 1);
+      assert.equal(r.findings[0]!.ambiguous, true, `prefix ${prefix}`);
+      n++;
+    }
+    assert.equal(n, 9000);
+  });
+});
+
 describe('classifiers', () => {
   it('RulesOnly runs the detectors', async () => {
     const spans = await new RulesOnly().classify(`card ${h.VISA}`);

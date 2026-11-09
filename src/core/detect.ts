@@ -33,6 +33,8 @@ export interface Span {
   category: Category;
   confidence: Confidence;
   rule: string;
+  /** a longer run of digit groups surrounds a card-like window; the whole run is hidden and cannot be filled */
+  ambiguous?: boolean;
 }
 
 export interface DetectOptions {
@@ -250,13 +252,40 @@ function detectCards(text: string, out: Span[]): void {
       }
     }
     cands.sort((x, y) => Number(x.multiline) - Number(y.multiline) || y.len - x.len || x.a - y.a);
-    const taken: { from: number; to: number }[] = [];
+    const taken: { a: number; len: number; from: number; to: number; multiline: boolean }[] = [];
     for (const c of cands) {
       const from = pos[c.a] as number;
       const to = (pos[c.a + c.len - 1] as number) + 1;
       if (taken.some((t) => from < t.to && to > t.from)) continue;
-      taken.push({ from, to });
-      out.push({ start: m.index + from, end: m.index + to, category: 'CARD', confidence: 'sure', rule: 'card-luhn-iin' });
+      taken.push({ ...c, from, to });
+    }
+    // Digit groups on one line form a run. If a card-like window sits in a run that has more digits
+    // than the windows cover (a short number, then a card on the same line), nobody can tell which part is the
+    // card: hide the whole run as one ambiguous span instead of guessing.
+    const runs: [number, number][] = [];
+    for (let i = 0, from = 0; i < pos.length; i++) {
+      if (i + 1 === pos.length || /[\r\n]/.test(s.slice(pos[i] as number, pos[i + 1] as number))) {
+        runs.push([from, i + 1]);
+        from = i + 1;
+      }
+    }
+    const dropped = new Set<(typeof taken)[number]>();
+    for (const [ra, rb] of runs) {
+      const inside = taken.filter((t) => !t.multiline && t.a >= ra && t.a + t.len <= rb);
+      if (inside.length === 0 || inside.reduce((n, t) => n + t.len, 0) === rb - ra) continue;
+      inside.forEach((t) => dropped.add(t));
+      out.push({
+        start: m.index + (pos[ra] as number),
+        end: m.index + (pos[rb - 1] as number) + 1,
+        category: 'CARD',
+        confidence: 'sure',
+        rule: 'card-run-ambiguous',
+        ambiguous: true,
+      });
+    }
+    for (const t of taken) {
+      if (dropped.has(t)) continue;
+      out.push({ start: m.index + t.from, end: m.index + t.to, category: 'CARD', confidence: 'sure', rule: 'card-luhn-iin' });
     }
   }
 }

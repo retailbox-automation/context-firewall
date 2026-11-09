@@ -85,6 +85,7 @@ export async function fill(
   if (typeof token !== 'string' || !TOKEN_RE.test(token)) throw new FillError('fill needs a placeholder like [CARD_1]');
   const value = vault.get(token);
   if (value === undefined) throw new FillError(`unknown token ${token}`);
+  if (vault.isAmbiguous(token)) throw new FillError(`token ${token}: ambiguous card run, not filled`);
   const bound = vault.originOf(token);
   if (bound === undefined) throw new FillError(`token ${token} has no origin binding`);
   if (originOf(page.url()) !== bound) throw new FillError(`token ${token} may not be filled on this page`);

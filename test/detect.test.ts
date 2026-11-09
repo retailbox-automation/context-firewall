@@ -80,11 +80,18 @@ describe('cards', () => {
     const cards = detect(text).filter((x) => x.category === 'CARD');
     assert.equal(cards.length, 1);
     assert.equal(text.slice(cards[0]!.start, cards[0]!.end), [h.AMEX.slice(0, 4), h.AMEX.slice(4, 10), h.AMEX.slice(10)].join(' '));
-    for (const sep of ['\n', '\t', '\r\n', ' ']) {
+    for (const sep of ['\n', '\r\n']) {
       const t = `Qty 401${sep}${h.AMEX.slice(0, 4)} ${h.AMEX.slice(4, 10)} ${h.AMEX.slice(10)}`;
       const c = detect(t).filter((x) => x.category === 'CARD');
       assert.equal(c.length, 1, JSON.stringify(sep));
-      assert.ok(t.slice(c[0]!.start, c[0]!.end).startsWith('3782'), JSON.stringify(sep));
+      assert.ok(t.slice(c[0]!.start, c[0]!.end).startsWith('3782') && !c[0]!.ambiguous, JSON.stringify(sep));
+    }
+    for (const sep of ['\t', ' ']) {
+      // same line: the digits before the card cannot be told apart from its front, so the whole run is hidden
+      const t = `Qty 401${sep}${h.AMEX.slice(0, 4)} ${h.AMEX.slice(4, 10)} ${h.AMEX.slice(10)}`;
+      const c = detect(t).filter((x) => x.category === 'CARD');
+      assert.equal(c.length, 1, JSON.stringify(sep));
+      assert.ok(c[0]!.ambiguous && t.slice(c[0]!.start, c[0]!.end).startsWith('401'), JSON.stringify(sep));
     }
   });
   it('a number on the line above never swallows the front of a card on the next line (4000-4999 prefixes)', () => {
@@ -117,10 +124,16 @@ describe('cards', () => {
       assert.equal(detect(row).filter((x) => x.category === 'CARD').length, 2, row);
     }
   });
-  it('finds a card that follows other digits in the same group run', () => {
+  it('digits before a card on the same line make the whole run ambiguous', () => {
     const text = `2026 ${h.VISA_SPACED}`;
     const s = only(text);
-    assert.equal(text.slice(s.start, s.end), h.VISA_SPACED);
+    assert.equal(text.slice(s.start, s.end), text);
+    assert.equal(s.ambiguous, true);
+  });
+  it('an honest single card, or several cards in a row, are not ambiguous', () => {
+    for (const t of [`Ref ${h.VISA_SPACED}`, `${h.VISA} ${h.MASTERCARD}`, `${h.VISA_SPACED} ${h.MASTERCARD}`]) {
+      assert.ok(detect(t).filter((x) => x.category === 'CARD').every((x) => !x.ambiguous), t);
+    }
   });
 });
 

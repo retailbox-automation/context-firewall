@@ -9,9 +9,15 @@ import type { Category, Confidence, Span } from './detect.ts';
 export class Vault {
   #values = new Map<string, string>();
   #origins = new Map<string, string>();
-  set(token: string, value: string, origin?: string): void {
+  #ambiguous = new Set<string>();
+  set(token: string, value: string, origin?: string, ambiguous = false): void {
     this.#values.set(token, value);
+    if (ambiguous) this.#ambiguous.add(token);
     if (origin !== undefined) this.#origins.set(token, origin);
+  }
+  /** the value is a run of digits that may hold a card plus neighbours; never filled */
+  isAmbiguous(token: string): boolean {
+    return this.#ambiguous.has(token);
   }
   /** the page origin the value was seen on; undefined when the source was not given */
   originOf(token: string): string | undefined {
@@ -26,6 +32,7 @@ export class Vault {
   forget(): void {
     this.#values.clear();
     this.#origins.clear();
+    this.#ambiguous.clear();
   }
   toJSON(): { size: number } {
     return { size: this.#values.size };
@@ -42,15 +49,15 @@ export class Session {
   #counters = new Map<Category, number>();
   #tokens = new Map<string, string>();
 
-  tokenFor(category: Category, value: string, origin?: string): string {
-    const key = `${category}\0${origin ?? ''}\0${canonical(category, value)}`;
+  tokenFor(category: Category, value: string, origin?: string, ambiguous = false): string {
+    const key = `${category}\0${origin ?? ''}\0${ambiguous ? 'run:' : ''}${canonical(category, value)}`;
     let token = this.#tokens.get(key);
     if (token === undefined) {
       const n = (this.#counters.get(category) ?? 0) + 1;
       this.#counters.set(category, n);
       token = `[${category}_${n}]`;
       this.#tokens.set(key, token);
-      this.vault.set(token, value, origin);
+      this.vault.set(token, value, origin, ambiguous);
     }
     return token;
   }
@@ -80,6 +87,8 @@ export interface Finding {
   span_sha256: string;
   confidence: Confidence;
   rule: string;
+  /** set when the token stands for a longer digit run that contains a card-like number */
+  ambiguous?: true;
 }
 
 export interface RedactResult {
@@ -119,7 +128,7 @@ export async function redact(text: string, opts: RedactOptions = {}): Promise<Re
   const findings: Finding[] = [];
   for (const s of resolveOverlaps(tagged)) {
     const value = text.slice(s.start, s.end);
-    const token = session.tokenFor(s.category, value, opts.origin);
+    const token = session.tokenFor(s.category, value, opts.origin, s.ambiguous === true);
     out += text.slice(cursor, s.start) + token;
     cursor = s.end;
     findings.push({
@@ -129,6 +138,7 @@ export async function redact(text: string, opts: RedactOptions = {}): Promise<Re
       span_sha256: session.digest(s.category, value),
       confidence: s.confidence,
       rule: s.rule,
+      ...(s.ambiguous ? { ambiguous: true as const } : {}),
     });
   }
   return { text: out + text.slice(cursor), findings };

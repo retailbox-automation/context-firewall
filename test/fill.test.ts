@@ -151,6 +151,21 @@ describe('fill', () => {
     });
   });
 
+  it('an ambiguous card run is never filled, an honest card on the same page is', async () => {
+    const s = new Session();
+    const card = h.VISA_SPACED;
+    const r = await redact(`Ref 2226 ${card}\nReal ${h.MASTERCARD}`, { session: s, origin: SHOP });
+    assert.deepEqual(r.findings.map((f) => [f.token, f.ambiguous === true]), [['[CARD_1]', true], ['[CARD_2]', false]]);
+    const typed: string[] = [];
+    await assert.rejects(fill(fakePage(SHOP, { onFill: (_a, v) => typed.push(v) }), '#card', '[CARD_1]', s.vault), (e: Error) => {
+      assert.ok(e instanceof FillError && e.message.includes('ambiguous card run, not filled') && !/\d{4}/.test(e.message.replace('[CARD_1]', '')));
+      return true;
+    });
+    assert.equal(typed.length, 0);
+    await fill(fakePage(SHOP, { onFill: (_a, v) => typed.push(v) }), '#card', '[CARD_2]', s.vault);
+    assert.deepEqual(typed, [h.MASTERCARD]);
+  });
+
   it('the lookup uses a short timeout by default', async () => {
     const s = await sessionWithCard();
     let seen = -1;
