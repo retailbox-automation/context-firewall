@@ -1,8 +1,28 @@
 // Deterministic synthetic corpus. Every secret-shaped value is assembled at run time from
 // parts and random characters; nothing here is a real credential. Card numbers are the
 // publicly documented test numbers of the payment networks.
-import { CATEGORIES, luhn, sha256Hex } from '../core/detect.ts';
+// Deliberately imports nothing from the detectors except the Category type: decoys and
+// values are written here, independently of the detector regexes.
+import { createHash } from 'node:crypto';
 import type { Category } from '../core/detect.ts';
+
+export const CATEGORIES: readonly Category[] = [
+  'CARD', 'US_SSN', 'US_ITIN', 'US_EIN', 'IBAN', 'AWS_KEY', 'AWS_SECRET', 'OPENAI_KEY', 'ANTHROPIC_KEY',
+  'GITHUB_TOKEN', 'STRIPE_KEY', 'SLACK_TOKEN', 'GOOGLE_KEY', 'PRIVATE_KEY', 'JWT', 'OTP', 'KNOWN_SECRET',
+];
+
+const sha256Hex = (s: string): string => createHash('sha256').update(s).digest('hex');
+
+/** own Luhn check, used only to build decoys */
+function luhn(digits: string): boolean {
+  let sum = 0;
+  digits.split('').reverse().forEach((ch, i) => {
+    let d = Number(ch);
+    if (i % 2 === 1) d = d * 2 > 9 ? d * 2 - 9 : d * 2;
+    sum += d;
+  });
+  return sum % 10 === 0;
+}
 
 export type Genre = 'payment-page' | 'email' | 'ocr';
 export const GENRES: readonly Genre[] = ['payment-page', 'email', 'ocr'];
@@ -97,14 +117,19 @@ const TEST_PANS: readonly string[][] = [
   ['3530', '1113', '3330', '0000'],
   ['3566', '0020', '2036', '0505'],
   ['6200', '0000', '0000', '0005'],
+  // networks outside the detector's list: Diners (16 and 14 digits) and Maestro; counted as misses
+  ['3056', '9300', '0902', '0004'],
+  ['3622', '720627', '1667'],
+  ['6759', '6498', '2643', '8453'],
 ];
 
 function cardValue(r: Rng, noisy: boolean): string {
   const groups = r.pick(TEST_PANS);
-  const style = r.int(0, 2);
+  const style = r.int(0, 5);
   if (style === 0) return groups.join('');
-  const sep = style === 1 ? ' ' : '-';
-  return groups.join(noisy && r.chance(0.5) ? sep + sep : sep);
+  const sep = [' ', ' ', '-', '\u00a0', '.'][style - 1] as string;
+  const joined = groups.join(noisy && r.chance(0.5) ? sep + sep : sep);
+  return noisy && r.chance(0.15) ? joined.replace(/\d/g, (d) => String.fromCharCode(0xff10 + Number(d))) : joined;
 }
 
 function ssnValue(r: Rng): string {
@@ -157,7 +182,20 @@ function jwtValue(r: Rng): string {
 
 function pemValue(r: Rng): string {
   const lines = Array.from({ length: r.int(3, 6) }, () => r.chars(ALNUM + '+/', 64));
-  return ['-----BEGIN ' + 'PRIVATE KEY-----', ...lines, r.chars(ALNUM, 20) + '==', '-----END ' + 'PRIVATE KEY-----'].join('\n');
+  lines.push(r.chars(ALNUM, 20) + '==');
+  const kind = r.pick(['', 'RSA ', 'EC ']);
+  const begin = '-----BEGIN ' + kind + 'PRIVATE KEY-----';
+  const end = '-----END ' + kind + 'PRIVATE KEY-----';
+  switch (r.int(0, 3)) {
+    case 0: // plain
+      return [begin, ...lines, end].join('\n');
+    case 1: // inside a JSON string (service-account file): literal backslash-n
+      return [begin, ...lines, end].join('\\n') + '\\n';
+    case 2: // legacy encrypted PEM with headers
+      return [begin, 'Proc-Type: 4,ENCRYPTED', 'DEK-Info: AES-128-CBC,' + r.chars('0123456789ABCDEF', 32), '', ...lines, end].join('\n');
+    default: // quoted in a reply
+      return [begin, ...lines, end].map((l, i) => (i === 0 ? l : '> ' + l)).join('\n');
+  }
 }
 
 const KEY_BUILDERS: Record<string, (r: Rng) => string> = {
@@ -172,37 +210,67 @@ const KEY_BUILDERS: Record<string, (r: Rng) => string> = {
 
 // ---------- decoys ----------
 
-function luhnCheckDigit(partial: string): string {
-  for (let d = 0; d < 10; d++) if (luhn(partial + d)) return String(d);
+function withLuhn(partial: string): string {
+  for (let d = 0; d < 10; d++) if (luhn(partial + d)) return partial + d;
   throw new Error('unreachable');
 }
 
-function nonLuhn16(r: Rng): string {
-  let s: string;
-  do s = r.pick(['4', '5', '3', '6']) + r.digits(15);
-  while (luhn(s));
-  return s;
-}
+/** random digits, no Luhn filter: some of these are valid card-shaped numbers by chance */
+const randomRef = (r: Rng, lead: string): string => lead + r.digits(15);
 
+const b64u = (s: string): string => Buffer.from(s).toString('base64url');
+
+// Hard negatives. Several of them WILL trip a detector (documentation placeholders, order
+// numbers that happen to pass Luhn, "code" words that are not logins); that is the point.
 const DECOYS: ((r: Rng) => string)[] = [
-  (r) => `Order #${r.digits(8)}`,
-  (r) => `Order ${r.chars(UP, 3)}-${r.int(2024, 2026)}-${r.digits(6)}`,
-  (r) => `Tracking: 1Z${r.chars(UP + NUM, 16)}`,
-  (r) => `Tracking number ${r.pick(['94', '92'])}${r.digits(20)}`,
-  (r) => `Reference ${nonLuhn16(r)}`,
-  (r) => `Ref ${'9' + r.digits(14)}`.replace(/(\d+)$/, (d) => d + luhnCheckDigit(d)), // Luhn-valid, unknown IIN
-  (r) => `Phone: (${r.int(201, 989)}) ${r.int(201, 989)}-${r.digits(4)}`,
-  (r) => `Call +1 ${r.int(201, 989)} ${r.int(201, 989)} ${r.digits(4)}`,
-  (r) => `Phone ${r.int(201, 989)}-${r.int(201, 989)}-${r.digits(4)}`,
-  (r) => `Date: ${r.int(2024, 2026)}-${String(r.int(1, 12)).padStart(2, '0')}-${String(r.int(1, 28)).padStart(2, '0')}`,
-  (r) => `Placed on ${r.int(1, 12)}/${r.int(1, 28)}/${r.int(2024, 2026)}`,
-  (r) => `Request id ${uuid(r)}`,
-  (r) => `commit ${r.chars('0123456789abcdef', 40)}`,
-  (r) => `build ${r.chars('0123456789abcdef', 7)}`,
-  (r) => `Total: $${r.int(1, 9)},${r.digits(3)}.${r.digits(2)}`,
-  (r) => `Subtotal $${r.int(10, 999)}.${r.digits(2)}`,
-  (r) => `Postal code: ${r.digits(5)}`,
-  (r) => `Invoice ${r.digits(2)}-${r.digits(7)}`.replace(/^Invoice (0\d|1[789]|2[89]|49|69|7[089]|89|9[67])/, 'Invoice 31'),
+  // numbers
+  (r) => 'Order #' + r.digits(8),
+  (r) => 'Order ' + r.chars(UP, 3) + '-' + r.int(2024, 2026) + '-' + r.digits(6),
+  (r) => 'Tracking: 1Z' + r.chars(UP + NUM, 16),
+  (r) => 'Tracking number ' + r.pick(['94', '92']) + r.digits(20),
+  (r) => 'Order number ' + randomRef(r, r.pick(['4', '5', '3', '6'])),
+  (r) => 'Membership no. ' + randomRef(r, r.pick(['4', '5'])),
+  (r) => 'Ref ' + withLuhn(r.pick(['9', '8', '1', '7']) + r.digits(14)),
+  (r) => 'IMEI: ' + withLuhn(r.pick(['35', '86', '49', '01']) + r.digits(12)),
+  (r) => 'Serial ' + r.digits(16),
+  (r) => 'Phone: (' + r.int(201, 989) + ') ' + r.int(201, 989) + '-' + r.digits(4),
+  (r) => 'Call +1 ' + r.int(201, 989) + ' ' + r.int(201, 989) + ' ' + r.digits(4),
+  (r) => 'Phone ' + r.int(201, 989) + '-' + r.int(201, 989) + '-' + r.digits(4),
+  (r) => 'Date: ' + r.int(2024, 2026) + '-' + String(r.int(1, 12)).padStart(2, '0') + '-' + String(r.int(1, 28)).padStart(2, '0'),
+  (r) => 'Placed on ' + r.int(1, 12) + '/' + r.int(1, 28) + '/' + r.int(2024, 2026),
+  (r) => 'Request id ' + uuid(r),
+  (r) => 'commit ' + r.chars('0123456789abcdef', 40),
+  (r) => 'build ' + r.chars('0123456789abcdef', 7),
+  (r) => 'Digest ' + mixed(r, ALNUM + '/+', 40),
+  (r) => 'Total: $' + r.int(1, 9) + ',' + r.digits(3) + '.' + r.digits(2),
+  (r) => 'Subtotal $' + r.int(10, 999) + '.' + r.digits(2),
+  // look-alikes of tax ids and bank numbers
+  (r) => 'Part no. ' + r.int(100, 665) + '-' + r.int(10, 99) + '-' + r.int(1000, 9999),
+  (r) => 'Part ' + r.int(900, 999) + '-' + r.int(10, 99) + '-' + r.int(1000, 9999),
+  (r) => 'Invoice ' + r.int(31, 48) + '-' + r.digits(7),
+  (r) => 'Account no. ' + r.int(31, 48) + '-' + r.digits(7),
+  (r) => 'Booking ref ' + r.pick(['DE', 'GB', 'FR', 'ES']) + r.digits(2) + ' ' + r.chars(UP, 4) + ' ' + r.digits(4) + ' ' + r.digits(4) + ' ' + r.digits(4) + ' ' + r.digits(2),
+  // words that look like keys or codes
+  (r) => 'See sk-learn-' + r.pick(['pipeline', 'compat', 'metrics']) + '-v' + r.int(2, 9) + ' in the docs',
+  () => 'Placeholder: sk-' + 'x'.repeat(32),
+  (r) => 'Example: sk-your-api-key-goes-here-' + r.digits(12),
+  (r) => 'Run task-runner-sk-' + r.digits(20) + ' again',
+  () => 'Keys start with AKIA followed by 16 characters',
+  () => 'From the docs: AK' + 'IA' + 'IOSFODNN7' + 'EXAM' + 'PLE',
+  () => 'Tokens look like ghp_ plus 36 characters, ghost_style_names are fine',
+  () => 'Use sk_test_ keys for staging, sk_live_ only in production',
+  () => 'Docs placeholder AI' + 'za' + 'X'.repeat(35),
+  () => 'Thanks, xoxo and see you soon',
+  (r) => 'Token header ' + b64u('{"typ":"JWT"}') + '.' + b64u('{"id":' + r.int(1, 99) + '}') + '.' + r.chars(B64URL, 20),
+  (r) => 'Blob ' + b64u(r.chars(LOW, 12)) + '.' + b64u(r.chars(LOW, 12)) + '.' + r.chars(B64URL, 12),
+  () => '-----BEGIN ' + 'PUBLIC KEY----- (shared with partners) -----END ' + 'PUBLIC KEY-----',
+  () => '-----BEGIN ' + 'CERTIFICATE----- chain follows -----END ' + 'CERTIFICATE-----',
+  (r) => 'Product code: ' + r.digits(5),
+  (r) => 'Promo code ' + r.digits(6),
+  (r) => 'Your order code is ' + r.digits(6),
+  (r) => 'Error code ' + r.digits(5) + ' on retry',
+  (r) => 'Tracking code ' + r.digits(8),
+  (r) => 'Postal code: ' + r.digits(5),
 ];
 
 function uuid(r: Rng): string {
@@ -330,9 +398,16 @@ function buildDoc(r: Rng, id: string, genre: Genre, known: string[]): Doc {
   for (const cat of CATEGORIES) {
     if (cat === 'AWS_SECRET') continue; // placed right after its key id
     const mk = (c: Category): Line => ({ category: c, value: makeValue(r, c, genre, known), text: tpl[c] });
-    groups.push(cat === 'AWS_KEY' ? [mk('AWS_KEY'), mk('AWS_SECRET')] : [mk(cat)]);
+    if (cat === 'AWS_KEY') {
+      const pair = [mk('AWS_KEY'), mk('AWS_SECRET')];
+      if (genre === 'payment-page' && r.chance(0.5)) {
+        pair[0]!.text = 'AWS_ACCESS_KEY_ID={v}';
+        pair[1]!.text = 'AWS_SECRET_ACCESS_KEY={v}';
+      }
+      groups.push(pair);
+    } else groups.push([mk(cat)]);
   }
-  for (let i = r.int(5, 9); i > 0; i--) groups.push([{ text: (r.pick(DECOYS))(r) }]);
+  for (let i = r.int(12, 18); i > 0; i--) groups.push([{ text: (r.pick(DECOYS))(r) }]);
   for (let i = r.int(2, 4); i > 0; i--) groups.push([{ text: r.pick(FILLER[genre]) }]);
   for (const g of r.shuffle(groups)) lines.push(...g);
 

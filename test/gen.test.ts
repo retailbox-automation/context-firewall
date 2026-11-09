@@ -26,14 +26,32 @@ describe('corpus generator', () => {
     }
   });
 
+  it('the generator does not import detector code', () => {
+    const src = readFileSync(join(root, 'src/eval/gen.ts'), 'utf8');
+    const imports = src.split('\n').filter((l) => /^import /.test(l));
+    assert.ok(imports.every((l) => !l.includes('detect.ts') || l.startsWith('import type')), imports.join('\n'));
+  });
+
+  it('covers the PEM forms, the AWS env form, odd card separators and hard negatives', () => {
+    const all = a.docs.map((d) => d.text).join('\n');
+    assert.ok(all.includes('PRIVATE KEY-----\\n'), 'json-escaped pem');
+    assert.ok(all.includes('Proc-Type: 4,ENCRYPTED'), 'legacy pem');
+    assert.ok(all.includes('> ' + 'MIIE'.slice(0, 0)) && /\n> [A-Za-z0-9+/]{20}/.test(all), 'quoted pem');
+    assert.ok(all.includes('AWS_SECRET_ACCESS_KEY='), 'env form');
+    assert.ok(all.includes('\u00a0') && /\d\.\d{4}\.\d{4}/.test(all), 'nbsp / dot separators');
+    for (const bait of ['IMEI:', 'sk-learn', 'Placeholder: sk-', 'Keys start with AKIA', 'PUBLIC KEY', 'Promo code', 'Account no.', 'Booking ref', 'Part no.']) {
+      assert.ok(all.includes(bait), bait);
+    }
+  });
+
   it('rejects a bad count', () => {
     assert.throws(() => generate({ seed: 1, count: 0 }), RangeError);
   });
 
-  it('eval numbers: sure categories on clean text are found, decoys do not poison cards', () => {
+  it('eval numbers stay in a sane range with the hard negatives in', () => {
     const res = evaluate(a, 7, 'test');
-    assert.ok(res.categories.CARD!.recall >= 0.9 && res.categories.CARD!.precision === 1);
-    assert.ok(res.anyCategoryRecall >= 0.9);
+    assert.ok(res.categories.CARD!.recall >= 0.7 && res.categories.CARD!.precision >= 0.8);
+    assert.ok(res.anyCategoryRecall >= 0.85);
     for (const c of ['US_SSN', 'IBAN', 'JWT', 'PRIVATE_KEY'] as const) assert.ok(res.categories[c]!.recall >= 0.9, c);
   });
 });

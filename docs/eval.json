@@ -5,74 +5,74 @@
   "categories": {
     "CARD": {
       "truth": 300,
-      "found": 300,
-      "tp": 300,
-      "fp": 0,
-      "recall": 1,
-      "precision": 1
+      "found": 262,
+      "tp": 250,
+      "fp": 12,
+      "recall": 0.8333,
+      "precision": 0.9542
     },
     "US_SSN": {
       "truth": 300,
-      "found": 300,
+      "found": 411,
       "tp": 300,
-      "fp": 0,
+      "fp": 111,
       "recall": 1,
-      "precision": 1
+      "precision": 0.7299
     },
     "US_ITIN": {
       "truth": 300,
-      "found": 300,
+      "found": 348,
       "tp": 300,
-      "fp": 0,
+      "fp": 48,
       "recall": 1,
-      "precision": 1
+      "precision": 0.8621
     },
     "US_EIN": {
       "truth": 300,
-      "found": 436,
+      "found": 509,
       "tp": 300,
-      "fp": 136,
+      "fp": 209,
       "recall": 1,
-      "precision": 0.6881
+      "precision": 0.5894
     },
     "IBAN": {
       "truth": 300,
-      "found": 300,
+      "found": 303,
       "tp": 300,
-      "fp": 0,
+      "fp": 3,
       "recall": 1,
-      "precision": 1
+      "precision": 0.9901
     },
     "AWS_KEY": {
       "truth": 300,
-      "found": 300,
+      "found": 388,
       "tp": 300,
-      "fp": 0,
+      "fp": 88,
       "recall": 1,
-      "precision": 1
+      "precision": 0.7732
     },
     "AWS_SECRET": {
       "truth": 300,
-      "found": 281,
-      "tp": 281,
-      "fp": 0,
-      "recall": 0.9367,
-      "precision": 1
+      "found": 303,
+      "tp": 289,
+      "fp": 14,
+      "recall": 0.9633,
+      "precision": 0.9538
     },
     "OPENAI_KEY": {
       "truth": 300,
-      "found": 283,
-      "tp": 283,
-      "fp": 0,
-      "recall": 0.9433,
-      "precision": 1
+      "found": 393,
+      "tp": 287,
+      "fp": 106,
+      "recall": 0.9567,
+      "precision": 0.7303
     },
     "ANTHROPIC_KEY": {
       "truth": 300,
-      "found": 285,
-      "tp": 285,
+      "found": 292,
+      "tp": 292,
       "fp": 0,
-      "recall": 0.95,
+      "recall": 0.9733,
       "precision": 1
     },
     "GITHUB_TOKEN": {
@@ -101,11 +101,11 @@
     },
     "GOOGLE_KEY": {
       "truth": 300,
-      "found": 300,
+      "found": 399,
       "tp": 300,
-      "fp": 0,
+      "fp": 99,
       "recall": 1,
-      "precision": 1
+      "precision": 0.7519
     },
     "PRIVATE_KEY": {
       "truth": 300,
@@ -125,34 +125,34 @@
     },
     "OTP": {
       "truth": 300,
-      "found": 298,
+      "found": 671,
       "tp": 296,
-      "fp": 2,
+      "fp": 375,
       "recall": 0.9867,
-      "precision": 0.9933
+      "precision": 0.4411
     },
     "KNOWN_SECRET": {
       "truth": 300,
-      "found": 289,
-      "tp": 289,
+      "found": 279,
+      "tp": 279,
       "fp": 0,
-      "recall": 0.9633,
+      "recall": 0.93,
       "precision": 1
     }
   },
-  "anyCategoryRecall": 0.9871,
+  "anyCategoryRecall": 0.979,
   "byGenre": {
     "payment-page": {
       "truth": 1700,
-      "recall": 1
+      "recall": 0.9876
     },
     "email": {
       "truth": 1700,
-      "recall": 1
+      "recall": 0.9929
     },
     "ocr": {
       "truth": 1700,
-      "recall": 0.9612
+      "recall": 0.9565
     }
   }
 }
