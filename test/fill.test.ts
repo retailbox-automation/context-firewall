@@ -99,25 +99,45 @@ describe('fill', () => {
     assert.deepEqual(seen, []);
   });
 
-  it('an element whose own document is on another origin (iframe) is refused', async () => {
+  it('an element in an iframe is refused, whatever the iframe origin', async () => {
     const s = await sessionWithCard();
     const calls: string[] = [];
-    const page = fakePage(SHOP, { elementOrigin: 'https://widget.evil.example', onFill: (_a, b) => calls.push(b) });
+    const page = fakePage(SHOP, { iframeUrl: 'https://widget.evil.example/chat', onFill: (_a, b) => calls.push(b) });
     await assert.rejects(fill(page, '#card', '[CARD_1]', s.vault), /may not be filled in this document/);
-    const blank = fakePage(SHOP, { elementOrigin: 'null', onFill: (_a, b) => calls.push(b) });
-    await assert.rejects(fill(blank, '#card', '[CARD_1]', s.vault), FillError);
+    const blank = fakePage(SHOP, { iframeUrl: SHOP + '/same-origin-iframe', onFill: (_a, b) => calls.push(b) });
+    await assert.rejects(fill(blank, '#card', '[CARD_1]', s.vault), /may not be filled in this document/);
     assert.deepEqual(calls, []);
   });
 
   it('navigation between the origin check and the fill: refused, nothing typed, no value in the error', async () => {
     const s = await sessionWithCard();
     const typed: string[] = [];
-    const page = fakePage(SHOP, { afterOriginCheck: () => {}, onFill: (_a, b) => typed.push(b) });
+    const page = fakePage(SHOP, { detachAfterOwnerCheck: true, onFill: (_a, b) => typed.push(b) });
     await assert.rejects(fill(page, '#card', '[CARD_1]', s.vault), (e: Error) => {
       assert.ok(e instanceof FillError);
       assert.equal(e.message, 'fill failed for [CARD_1] on #card');
       return true;
     });
+    assert.deepEqual(typed, []);
+  });
+
+  it('redirect while the lookup waits: the element is found in the new document of another origin and refused', async () => {
+    const s = await sessionWithCard();
+    const typed: string[] = [];
+    const page = fakePage(SHOP, { redirectDuringWait: 'https://evil.example/', onFill: (_a, b) => typed.push(b) });
+    await assert.rejects(fill(page, '#card', '[CARD_1]', s.vault), /may not be filled in this document/);
+    assert.deepEqual(typed, []);
+  });
+
+  it('the main frame moves right after the owner check: the second URL check stops the fill', async () => {
+    const s = await sessionWithCard();
+    const typed: string[] = [];
+    const page = fakePage(SHOP, { redirectAfterOwnerCheck: 'https://evil.example/', onFill: (_a, b) => typed.push(b) });
+    await assert.rejects(fill(page, '#card', '[CARD_1]', s.vault), (e: Error) => {
+      assert.ok(e instanceof FillError && !e.message.includes(h.VISA.slice(0, 6)));
+      return true;
+    });
+    await new Promise((r) => setTimeout(r, 5));
     assert.deepEqual(typed, []);
   });
 
@@ -127,6 +147,7 @@ describe('fill', () => {
     const page = {
       url: () => SHOP,
       mainFrame: () => ({
+        url: () => SHOP,
         async waitForSelector(_sel: string, o: { timeout: number }) {
           seen = o.timeout;
           return null;

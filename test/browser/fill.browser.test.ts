@@ -119,22 +119,24 @@ describe('executor in a real browser', { skip: enabled ? false : 'set CF_BROWSER
     }
   });
 
-  it('navigation between the origin check and the fill: nothing typed on the new page, no value in the error', async () => {
+  it('navigation after the owner check: nothing typed on the new page, no value in the error', async () => {
     const s = new Session();
     await redact(`card ${CARD}`, { session: s, origin: originOf(shop.url) });
     const p = await browser.newPage();
     try {
       await p.goto(shop.url);
+      const main = p.mainFrame();
       const racing = {
         url: () => p.url(),
         mainFrame: () => ({
+          url: () => main.url(),
           async waitForSelector(sel: string, o: { state: 'attached'; timeout: number }) {
-            const h = (await p.mainFrame().waitForSelector(sel, o))!;
+            const h = (await main.waitForSelector(sel, o))!;
             return {
-              evaluate: async <R>(fn: Parameters<typeof h.evaluate>[0]) => {
-                const r = (await h.evaluate(fn as never)) as R;
+              ownerFrame: async () => {
+                const f = await h.ownerFrame();
                 await p.goto(evil.url); // the page moves away after the check
-                return r;
+                return f === main ? racing.mainFrame() : f;
               },
               fill: (v: string, opts?: { timeout?: number }) => h.fill(v, opts),
             };
@@ -142,13 +144,41 @@ describe('executor in a real browser', { skip: enabled ? false : 'set CF_BROWSER
         }),
       };
       let failure = '';
-      await fill(racing, '#card', '[CARD_1]', s.vault, { timeout: 1000 }).catch((e: unknown) => {
+      await fill(racing as never, '#card', '[CARD_1]', s.vault, { timeout: 1000 }).catch((e: unknown) => {
         failure = e instanceof FillError ? e.message : 'wrong error type';
       });
-      assert.equal(failure, 'fill failed for [CARD_1] on #card');
+      assert.ok(failure !== '' && failure !== 'wrong error type', failure);
+      assert.ok(!failure.includes(DIGITS));
       assert.equal(await p.inputValue('#card'), '');
     } finally {
       await p.close();
+    }
+  });
+
+  it('redirect while waiting, to a page that replaces Node.prototype.ownerDocument: refused, field empty', async () => {
+    const hostile = await serveHtml(
+      `<!doctype html><script>Object.defineProperty(Node.prototype,'ownerDocument',{configurable:true,get(){return {location:{origin:${JSON.stringify(
+        originOf(shop.url),
+      )}}}}});</script><input id="card">`,
+    );
+    const start = await serveHtml(`<!doctype html><p>loading</p><script>setTimeout(function(){location.href=${JSON.stringify(hostile.url)}},300)</script>`);
+    const s = new Session();
+    await redact(`card ${CARD}`, { session: s, origin: originOf(start.url) });
+    const p = await browser.newPage();
+    try {
+      await p.goto(start.url);
+      let failure = '';
+      await fill(p, '#card', '[CARD_1]', s.vault, { timeout: 3000 }).catch((e: unknown) => {
+        failure = e instanceof FillError ? e.message : 'wrong error type';
+      });
+      assert.match(failure, /may not be filled/);
+      await p.waitForLoadState();
+      assert.equal(p.url(), hostile.url);
+      assert.equal(await p.inputValue('#card'), '');
+    } finally {
+      await p.close();
+      await start.close();
+      await hostile.close();
     }
   });
 });

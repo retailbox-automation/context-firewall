@@ -33,39 +33,46 @@ const b64 = (o: object): string => Buffer.from(JSON.stringify(o)).toString('base
 export const JWT = [b64({ alg: 'HS256', typ: 'JWT' }), b64({ sub: 'u1' }), 'c2lnbmF0dXJlLXBhcnQtMTIzNDU2Nzg5MA'].join('.');
 
 export interface FakeOptions {
-  /** origin of the element's own document; default: the origin of `url` */
-  elementOrigin?: string;
+  /** the element belongs to a frame other than the main frame (an iframe), at this URL */
+  iframeUrl?: string;
   onFill?: (selector: string, value: string) => void;
-  /** called after the element was resolved and its origin read, before the value goes in */
-  afterOriginCheck?: () => void;
+  /** the main frame moves to this URL while the lookup waits (redirect), so the element is found in the new document */
+  redirectDuringWait?: string;
+  /** the main frame moves to this URL after the owner check; the handle stays attached */
+  redirectAfterOwnerCheck?: string;
+  /** the element is detached after the owner check (navigation) */
+  detachAfterOwnerCheck?: boolean;
   fillError?: (value: string) => Error;
   selectors?: string[];
 }
 
 export function fakePage(url: string, o: FakeOptions = {}): Fillable {
-  return {
-    url: () => url,
-    mainFrame: () => ({
-      async waitForSelector(selector) {
-        o.selectors?.push(selector);
-        let detached = false;
-        return {
-          async evaluate(fn) {
-            const origin = o.elementOrigin ?? new URL(url).origin;
-            const r = fn({ ownerDocument: { location: { origin } } });
-            if (o.afterOriginCheck) {
-              o.afterOriginCheck();
-              detached = true;
-            }
-            return r;
-          },
-          async fill(value) {
-            if (detached) throw new Error('Element is not attached to the DOM');
-            if (o.fillError) throw o.fillError(value);
-            o.onFill?.(selector, value);
-          },
-        };
-      },
-    }),
+  let current = url;
+  const iframe = o.iframeUrl === undefined ? null : { url: () => o.iframeUrl as string };
+  const main = {
+    url: () => current,
+    async waitForSelector(selector: string) {
+      o.selectors?.push(selector);
+      if (o.redirectDuringWait) current = o.redirectDuringWait;
+      let detached = false;
+      return {
+        async ownerFrame() {
+          if (o.redirectAfterOwnerCheck) {
+            const frame = iframe ?? main;
+            queueMicrotask(() => void (current = o.redirectAfterOwnerCheck as string));
+            if (o.detachAfterOwnerCheck) detached = true;
+            return frame;
+          }
+          if (o.detachAfterOwnerCheck) detached = true;
+          return iframe ?? main;
+        },
+        async fill(value: string) {
+          if (detached) throw new Error('Element is not attached to the DOM');
+          if (o.fillError) throw o.fillError(value);
+          o.onFill?.(selector, value);
+        },
+      };
+    },
   };
+  return { url: () => current, mainFrame: () => main };
 }

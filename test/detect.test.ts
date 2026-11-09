@@ -75,6 +75,29 @@ describe('cards', () => {
     const ok = [h.VISA.slice(0, 4), h.VISA.slice(4, 8), h.VISA.slice(8, 12), h.VISA.slice(12)].join('\n');
     assert.equal(only(ok).category, 'CARD');
   });
+  it('a number on the line above is not glued to the card below', () => {
+    const text = 'Qty 401\n' + [h.AMEX.slice(0, 4), h.AMEX.slice(4, 10), h.AMEX.slice(10)].join(' ');
+    const cards = detect(text).filter((x) => x.category === 'CARD');
+    assert.equal(cards.length, 1);
+    assert.equal(text.slice(cards[0]!.start, cards[0]!.end), [h.AMEX.slice(0, 4), h.AMEX.slice(4, 10), h.AMEX.slice(10)].join(' '));
+    for (const sep of ['\n', '\t', '\r\n', ' ']) {
+      const t = `Qty 401${sep}${h.AMEX.slice(0, 4)} ${h.AMEX.slice(4, 10)} ${h.AMEX.slice(10)}`;
+      const c = detect(t).filter((x) => x.category === 'CARD');
+      assert.equal(c.length, 1, JSON.stringify(sep));
+      assert.ok(t.slice(c[0]!.start, c[0]!.end).startsWith('3782'), JSON.stringify(sep));
+    }
+  });
+  it('a column of four 4-digit numbers is a card only when Luhn and IIN say so', () => {
+    for (const col of ['1001\n1002\n1003\n1004', '4111\n1111\n1111\n1112', '2024\n0615\n0830\n1999', '4111\n1111\n1111\n1111\n9999']) {
+      const c = detect(col).filter((x) => x.category === 'CARD');
+      if (col.startsWith('4111\n1111\n1111\n1111\n')) assert.equal(c.length, 1, 'the 4x4 inside a longer column is still found once');
+      else assert.deepEqual(c, [], JSON.stringify(col));
+    }
+    assert.equal(detect('4111\n1111\n1111\n1111').filter((x) => x.category === 'CARD').length, 1);
+  });
+  it('odd groupings are not cards', () => {
+    assert.deepEqual(detect('4111 11 11 1111 1111').filter((x) => x.category === 'CARD'), []);
+  });
   it('several cards in one row are all found', () => {
     for (const row of [`${h.VISA} ${h.MASTERCARD}`, `${h.VISA_SPACED} ${h.MASTERCARD}`, `${h.VISA}\n${h.AMEX}`]) {
       assert.equal(detect(row).filter((x) => x.category === 'CARD').length, 2, row);
@@ -180,6 +203,27 @@ describe('keys', () => {
     }
     assert.deepEqual(detect(`AWS_SECRET_ACCESS_KEY=${h.AWS_SECRET.slice(0, 39)}`), []);
     assert.deepEqual(detect(`secret_access_key is rotated monthly ${h.AWS_SECRET}`).filter((x) => x.category === 'AWS_SECRET'), []);
+  });
+  it('AWS secret by label: spaced words, space separator, Kubernetes name/value, Terraform', () => {
+    const far = 'x'.repeat(500);
+    const forms = [
+      `AWS secret access key: ${h.AWS_SECRET}`,
+      `Secret Access Key,${h.AWS_SECRET}`.replace(',', ' '),
+      `aws configure set aws_secret_access_key ${h.AWS_SECRET}`,
+      `${far}\n- name: AWS_SECRET_ACCESS_KEY\n  value: "${h.AWS_SECRET}"\n${far}`,
+      `${far}\nenv:\n  - name: AWS_SECRET_ACCESS_KEY\n    value: ${h.AWS_SECRET}`,
+      `provider "aws" {\n  secret_key = "${h.AWS_SECRET}"\n}`,
+      `SecretAccessKey ${h.AWS_SECRET}`,
+    ];
+    for (const text of forms) {
+      const found = detect(text).filter((x) => x.category === 'AWS_SECRET');
+      assert.equal(found.length, 1, text.slice(-80));
+      assert.equal(text.slice(found[0]!.start, found[0]!.end), h.AWS_SECRET, text.slice(-80));
+    }
+    // a bare secret_key needs a mixed-case value; prose and wrong lengths stay quiet
+    assert.deepEqual(detect(`secret_key = "${'a1b2c3d4e5'.repeat(4)}"`), []);
+    assert.deepEqual(detect(`secret key rotated monthly ${h.AWS_SECRET}`).filter((x) => x.category === 'AWS_SECRET'), []);
+    assert.deepEqual(detect(`aws secret access key ${h.AWS_SECRET.slice(0, 38)}`), []);
   });
   it('AWS secret only next to a key id, and not a git SHA', () => {
     const text = `id ${h.AWS_ID}\nsecret ${h.AWS_SECRET}`;

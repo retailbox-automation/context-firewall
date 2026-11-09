@@ -11,16 +11,21 @@ export class FillError extends Error {
 
 export const TOKEN_RE = /^\[[A-Z_]+_\d+\]$/;
 
+/** A Playwright Frame: the executor reads only its URL, which Playwright tracks outside the page. */
+export interface FillFrame {
+  url(): string;
+}
+
 /** The part of a Playwright ElementHandle the executor needs. */
 export interface FillHandle {
-  evaluate<R>(fn: (el: { ownerDocument: { location: { origin: string } } }) => R): Promise<R>;
+  ownerFrame(): Promise<FillFrame | null>;
   fill(value: string, options?: { timeout?: number }): Promise<void>;
 }
 
 /** The part of a Playwright Page the executor needs. Elements come from the main frame only. */
 export interface Fillable {
   url(): string;
-  mainFrame(): {
+  mainFrame(): FillFrame & {
     waitForSelector(selector: string, options: { state: 'attached'; timeout: number }): Promise<FillHandle | null>;
   };
 }
@@ -47,9 +52,11 @@ export function isPlainCssSelector(selector: string): boolean {
 
 /**
  * The only place where a vault value is read, and only on the origin the value came from.
- * The element is looked up in the main frame with a short timeout, its own document's origin
- * is checked, and the value goes in through that same element handle: if the page navigates in
- * between, the handle is detached and the fill fails. The value is not returned or logged.
+ * The element is looked up in the main frame with a short timeout. Its origin is read from
+ * Playwright's own record of the frame that owns it (never from code running in the page, which
+ * the page can replace), and must equal the bound origin; the main frame's URL is checked again
+ * right before the value goes in through the same handle, so a navigation after the check makes
+ * the fill fail instead of typing into the new page. The value is not returned or logged.
  */
 export async function fill(
   page: Fillable,
@@ -67,24 +74,23 @@ export async function fill(
   if (bound === undefined) throw new FillError(`token ${token} has no origin binding`);
   if (originOf(page.url()) !== bound) throw new FillError(`token ${token} may not be filled on this page`);
   const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
+  const failed = new FillError(`fill failed for ${token} on ${selector}`);
+  const main = page.mainFrame();
   let handle: FillHandle | null;
+  let owner: FillFrame | null;
   try {
-    handle = await page.mainFrame().waitForSelector(selector, { state: 'attached', timeout });
+    handle = await main.waitForSelector(selector, { state: 'attached', timeout });
+    owner = handle ? await handle.ownerFrame() : null;
   } catch {
-    throw new FillError(`fill failed for ${token} on ${selector}`);
+    throw failed;
   }
-  if (!handle) throw new FillError(`fill failed for ${token} on ${selector}`);
-  let elementOrigin: string | undefined;
-  try {
-    elementOrigin = await handle.evaluate((el) => el.ownerDocument.location.origin);
-  } catch {
-    throw new FillError(`fill failed for ${token} on ${selector}`);
-  }
-  if (elementOrigin !== bound) throw new FillError(`token ${token} may not be filled in this document`);
+  if (!handle || !owner) throw failed;
+  if (owner !== main || originOf(owner.url()) !== bound) throw new FillError(`token ${token} may not be filled in this document`);
+  if (originOf(page.mainFrame().url()) !== bound) throw new FillError(`token ${token} may not be filled on this page`);
   try {
     await handle.fill(value, { timeout });
   } catch {
     // the underlying error is dropped on purpose: it may echo what was typed
-    throw new FillError(`fill failed for ${token} on ${selector}`);
+    throw failed;
   }
 }

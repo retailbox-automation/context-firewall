@@ -181,12 +181,17 @@ function detectKeys(text: string, out: Span[]): void {
 const AWS_SECRET_RE = /(?<![A-Za-z0-9/+])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+])/g;
 const AWS_WINDOW = 120;
 
-// the label itself marks the value, wherever it sits (no key id needed nearby)
-const AWS_SECRET_LABEL = /secret_?access_?key["']?\s*[:=]\s*["']?([A-Za-z0-9/+]{40})(?![A-Za-z0-9/+])/gid;
+// The label itself marks the value, wherever it sits (no key id needed nearby). Words may be joined
+// by space, underscore or nothing; the value follows after : or = or only whitespace, optionally
+// after a `value:` line (Kubernetes name/value pairs). A bare `secret_key` also needs a mixed-case value.
+const AWS_SECRET_LABEL =
+  /(secret(?:[ _]?access)?[ _]?key)["']?(?:[ \t]*[:=][ \t]*|\s{1,60}?)(?:(?:value|default|secret)\s*[:=]\s*)?["']?([A-Za-z0-9/+]{40})(?![A-Za-z0-9/+])/gid;
 
 function detectAwsSecret(text: string, out: Span[]): void {
   for (const m of text.matchAll(AWS_SECRET_LABEL)) {
-    const [from, to] = (m.indices as unknown as [number, number][])[1] as [number, number];
+    const [from, to] = (m.indices as unknown as [number, number][])[2] as [number, number];
+    const value = m[2] as string;
+    if (!/access/i.test(m[1] as string) && !(/\d/.test(value) && /[a-z]/.test(value) && /[A-Z]/.test(value))) continue;
     out.push({ start: from, end: to, category: 'AWS_SECRET', confidence: 'sure', rule: 'aws-secret-by-label' });
   }
   for (const k of out.filter((s) => s.category === 'AWS_KEY')) {
@@ -208,6 +213,18 @@ const FULLWIDTH_DIGIT = /[\uFF10-\uFF19]/g;
 const SEPARATORS = '[ \\t\\r\\n\\u00a0\\u2009\\u202f\\u3000._\\u2013\\uFF0D-]';
 const CARD_RUN = new RegExp(`(?<!\\d)(?<!\\d-)\\d(?:${SEPARATORS}{0,6}\\d){12,}(?!\\d)`, 'g');
 
+// digit-group layouts accepted when a card number is split by separators (a single group is always fine)
+const CARD_LAYOUTS = new Set(['4-4-4-4', '4-6-5', '4-6-4', '4-4-4-4-3', '4-4-4-4-4']);
+
+function layoutOk(pos: number[], a: number, len: number): boolean {
+  const groups: number[] = [1];
+  for (let i = a + 1; i < a + len; i++) {
+    if ((pos[i] as number) === (pos[i - 1] as number) + 1) groups[groups.length - 1]!++;
+    else groups.push(1);
+  }
+  return groups.length === 1 || CARD_LAYOUTS.has(groups.join('-'));
+}
+
 function detectCards(text: string, out: Span[]): void {
   // fullwidth digits become ASCII one for one, so offsets stay valid
   const t = text.replace(FULLWIDTH_DIGIT, (c) => String.fromCharCode(c.charCodeAt(0) - 0xff10 + 48));
@@ -224,7 +241,7 @@ function detectCards(text: string, out: Span[]): void {
         for (let len = Math.min(19, pos.length - a); len >= 13 && !hit; len--) {
           const last = pos[a + len - 1] as number;
           if (a + len < pos.length && (pos[a + len] as number) === last + 1) continue;
-          if (cardOk(pos.slice(a, a + len).map((p) => s[p]).join(''))) {
+          if (layoutOk(pos, a, len) && cardOk(pos.slice(a, a + len).map((p) => s[p]).join(''))) {
             out.push({ start: m.index + first, end: m.index + last + 1, category: 'CARD', confidence: 'sure', rule: 'card-luhn-iin' });
             hit = len;
           }
