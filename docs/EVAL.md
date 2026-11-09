@@ -9,30 +9,30 @@ A truth span counts as found when a finding of the same category overlaps it. A 
 
 | category | truth | found | recall | precision |
 |---|---:|---:|---:|---:|
-| CARD | 300 | 262 | 83.3% | 95.4% |
-| US_SSN | 300 | 411 | 100.0% | 73.0% |
-| US_ITIN | 300 | 348 | 100.0% | 86.2% |
-| US_EIN | 300 | 509 | 100.0% | 58.9% |
-| IBAN | 300 | 303 | 100.0% | 99.0% |
-| AWS_KEY | 300 | 388 | 100.0% | 77.3% |
-| AWS_SECRET | 300 | 303 | 96.3% | 95.4% |
-| OPENAI_KEY | 300 | 393 | 95.7% | 73.0% |
+| CARD | 300 | 261 | 82.0% | 94.3% |
+| US_SSN | 300 | 385 | 100.0% | 77.9% |
+| US_ITIN | 300 | 339 | 100.0% | 88.5% |
+| US_EIN | 300 | 501 | 100.0% | 59.9% |
+| IBAN | 300 | 306 | 100.0% | 98.0% |
+| AWS_KEY | 300 | 397 | 100.0% | 75.6% |
+| AWS_SECRET | 300 | 301 | 95.3% | 95.0% |
+| OPENAI_KEY | 300 | 395 | 96.7% | 73.4% |
 | ANTHROPIC_KEY | 300 | 292 | 97.3% | 100.0% |
 | GITHUB_TOKEN | 300 | 300 | 100.0% | 100.0% |
 | STRIPE_KEY | 300 | 300 | 100.0% | 100.0% |
 | SLACK_TOKEN | 300 | 300 | 100.0% | 100.0% |
-| GOOGLE_KEY | 300 | 399 | 100.0% | 75.2% |
+| GOOGLE_KEY | 300 | 408 | 100.0% | 73.5% |
 | PRIVATE_KEY | 300 | 300 | 100.0% | 100.0% |
 | JWT | 300 | 300 | 100.0% | 100.0% |
-| OTP | 300 | 671 | 98.7% | 44.1% |
-| KNOWN_SECRET | 300 | 279 | 93.0% | 100.0% |
+| OTP | 300 | 705 | 97.3% | 41.4% |
+| KNOWN_SECRET | 300 | 287 | 95.7% | 100.0% |
 
 Share of truth spans covered by a finding of any category: 97.9%.
 
 | genre | truth spans | covered (any category) |
 |---|---:|---:|
-| payment-page | 1700 | 98.8% |
+| payment-page | 1700 | 98.5% |
 | email | 1700 | 99.3% |
-| ocr | 1700 | 95.7% |
+| ocr | 1700 | 95.9% |
 
 Limits: the corpus is synthetic and written by the same team as the detectors, so real pages will score lower. Noise is limited to doubled separators, glued labels and character swaps outside the secret; digits changed inside a secret are not covered. SSN, EIN, OTP and `sk-` rules are shape-based: an order number, part number or "code" word of the same shape is reported, which is where the low precision comes from. The card rule needs a known IIN (Visa, Mastercard, Amex, Discover, JCB, UnionPay).

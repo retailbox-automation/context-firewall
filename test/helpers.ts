@@ -1,3 +1,5 @@
+import type { Fillable } from '../src/executor/fill.ts';
+
 // Test values are assembled from parts so the source holds no secret-shaped literal.
 export const j = (...parts: string[]): string => parts.join('');
 
@@ -29,3 +31,41 @@ export const GOOGLE = j('AI', 'za', 'Ab3dEfGh1jKlMnOp2qRsTuVw4xYz56789_-');
 export const PEM = [j('-----BEGIN ', 'PRIVATE KEY-----'), 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASC', 'KgwggSkAgEAAoIBAQC7VJTUt9Us8cKj', j('-----END ', 'PRIVATE KEY-----')].join('\n');
 const b64 = (o: object): string => Buffer.from(JSON.stringify(o)).toString('base64url');
 export const JWT = [b64({ alg: 'HS256', typ: 'JWT' }), b64({ sub: 'u1' }), 'c2lnbmF0dXJlLXBhcnQtMTIzNDU2Nzg5MA'].join('.');
+
+export interface FakeOptions {
+  /** origin of the element's own document; default: the origin of `url` */
+  elementOrigin?: string;
+  onFill?: (selector: string, value: string) => void;
+  /** called after the element was resolved and its origin read, before the value goes in */
+  afterOriginCheck?: () => void;
+  fillError?: (value: string) => Error;
+  selectors?: string[];
+}
+
+export function fakePage(url: string, o: FakeOptions = {}): Fillable {
+  return {
+    url: () => url,
+    mainFrame: () => ({
+      async waitForSelector(selector) {
+        o.selectors?.push(selector);
+        let detached = false;
+        return {
+          async evaluate(fn) {
+            const origin = o.elementOrigin ?? new URL(url).origin;
+            const r = fn({ ownerDocument: { location: { origin } } });
+            if (o.afterOriginCheck) {
+              o.afterOriginCheck();
+              detached = true;
+            }
+            return r;
+          },
+          async fill(value) {
+            if (detached) throw new Error('Element is not attached to the DOM');
+            if (o.fillError) throw o.fillError(value);
+            o.onFill?.(selector, value);
+          },
+        };
+      },
+    }),
+  };
+}

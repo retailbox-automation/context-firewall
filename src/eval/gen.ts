@@ -125,9 +125,9 @@ const TEST_PANS: readonly string[][] = [
 
 function cardValue(r: Rng, noisy: boolean): string {
   const groups = r.pick(TEST_PANS);
-  const style = r.int(0, 5);
+  const style = r.int(0, 9);
   if (style === 0) return groups.join('');
-  const sep = [' ', ' ', '-', '\u00a0', '.'][style - 1] as string;
+  const sep = [' ', ' ', '-', '\u00a0', '.', '\t', '\u3000', '_', '\n'][style - 1] as string;
   const joined = groups.join(noisy && r.chance(0.5) ? sep + sep : sep);
   return noisy && r.chance(0.15) ? joined.replace(/\d/g, (d) => String.fromCharCode(0xff10 + Number(d))) : joined;
 }

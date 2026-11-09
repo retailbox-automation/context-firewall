@@ -96,4 +96,59 @@ describe('executor in a real browser', { skip: enabled ? false : 'set CF_BROWSER
       await other.close();
     }
   });
+
+  it('a field inside an iframe of another origin is out of reach: frame-crossing selectors are refused, plain CSS stays in the main frame', async () => {
+    const host = await serveHtml(`<!doctype html><input id="card"><iframe id="w" src="${evil.url}"></iframe>`);
+    const p = await browser.newPage();
+    try {
+      await p.goto(host.url);
+      const frameInput = p.frameLocator('#w').locator('#card');
+      await frameInput.waitFor();
+      // the placeholder is bound to the top page; the iframe is another origin
+      const s2 = new Session();
+      await redact(`card ${CARD}`, { session: s2, origin: originOf(host.url) });
+      for (const sel of ['#w >> internal:control=enter-frame >> #card', 'iframe >> internal:control=enter-frame >> input']) {
+        await assert.rejects(fill(p, sel, '[CARD_1]', s2.vault), /selector not allowed/);
+      }
+      await fill(p, '#card', '[CARD_1]', s2.vault);
+      assert.equal(await p.inputValue('#card'), CARD);
+      assert.equal(await frameInput.inputValue(), '');
+    } finally {
+      await p.close();
+      await host.close();
+    }
+  });
+
+  it('navigation between the origin check and the fill: nothing typed on the new page, no value in the error', async () => {
+    const s = new Session();
+    await redact(`card ${CARD}`, { session: s, origin: originOf(shop.url) });
+    const p = await browser.newPage();
+    try {
+      await p.goto(shop.url);
+      const racing = {
+        url: () => p.url(),
+        mainFrame: () => ({
+          async waitForSelector(sel: string, o: { state: 'attached'; timeout: number }) {
+            const h = (await p.mainFrame().waitForSelector(sel, o))!;
+            return {
+              evaluate: async <R>(fn: Parameters<typeof h.evaluate>[0]) => {
+                const r = (await h.evaluate(fn as never)) as R;
+                await p.goto(evil.url); // the page moves away after the check
+                return r;
+              },
+              fill: (v: string, opts?: { timeout?: number }) => h.fill(v, opts),
+            };
+          },
+        }),
+      };
+      let failure = '';
+      await fill(racing, '#card', '[CARD_1]', s.vault, { timeout: 1000 }).catch((e: unknown) => {
+        failure = e instanceof FillError ? e.message : 'wrong error type';
+      });
+      assert.equal(failure, 'fill failed for [CARD_1] on #card');
+      assert.equal(await p.inputValue('#card'), '');
+    } finally {
+      await p.close();
+    }
+  });
 });

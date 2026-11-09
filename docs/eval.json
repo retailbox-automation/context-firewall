@@ -5,67 +5,67 @@
   "categories": {
     "CARD": {
       "truth": 300,
-      "found": 262,
-      "tp": 250,
-      "fp": 12,
-      "recall": 0.8333,
-      "precision": 0.9542
+      "found": 261,
+      "tp": 246,
+      "fp": 15,
+      "recall": 0.82,
+      "precision": 0.9425
     },
     "US_SSN": {
       "truth": 300,
-      "found": 411,
+      "found": 385,
       "tp": 300,
-      "fp": 111,
+      "fp": 85,
       "recall": 1,
-      "precision": 0.7299
+      "precision": 0.7792
     },
     "US_ITIN": {
       "truth": 300,
-      "found": 348,
+      "found": 339,
       "tp": 300,
-      "fp": 48,
+      "fp": 39,
       "recall": 1,
-      "precision": 0.8621
+      "precision": 0.885
     },
     "US_EIN": {
       "truth": 300,
-      "found": 509,
+      "found": 501,
       "tp": 300,
-      "fp": 209,
+      "fp": 201,
       "recall": 1,
-      "precision": 0.5894
+      "precision": 0.5988
     },
     "IBAN": {
       "truth": 300,
-      "found": 303,
+      "found": 306,
       "tp": 300,
-      "fp": 3,
+      "fp": 6,
       "recall": 1,
-      "precision": 0.9901
+      "precision": 0.9804
     },
     "AWS_KEY": {
       "truth": 300,
-      "found": 388,
+      "found": 397,
       "tp": 300,
-      "fp": 88,
+      "fp": 97,
       "recall": 1,
-      "precision": 0.7732
+      "precision": 0.7557
     },
     "AWS_SECRET": {
       "truth": 300,
-      "found": 303,
-      "tp": 289,
-      "fp": 14,
-      "recall": 0.9633,
-      "precision": 0.9538
+      "found": 301,
+      "tp": 286,
+      "fp": 15,
+      "recall": 0.9533,
+      "precision": 0.9502
     },
     "OPENAI_KEY": {
       "truth": 300,
-      "found": 393,
-      "tp": 287,
-      "fp": 106,
-      "recall": 0.9567,
-      "precision": 0.7303
+      "found": 395,
+      "tp": 290,
+      "fp": 105,
+      "recall": 0.9667,
+      "precision": 0.7342
     },
     "ANTHROPIC_KEY": {
       "truth": 300,
@@ -101,11 +101,11 @@
     },
     "GOOGLE_KEY": {
       "truth": 300,
-      "found": 399,
+      "found": 408,
       "tp": 300,
-      "fp": 99,
+      "fp": 108,
       "recall": 1,
-      "precision": 0.7519
+      "precision": 0.7353
     },
     "PRIVATE_KEY": {
       "truth": 300,
@@ -125,18 +125,18 @@
     },
     "OTP": {
       "truth": 300,
-      "found": 671,
-      "tp": 296,
-      "fp": 375,
-      "recall": 0.9867,
-      "precision": 0.4411
+      "found": 705,
+      "tp": 292,
+      "fp": 413,
+      "recall": 0.9733,
+      "precision": 0.4142
     },
     "KNOWN_SECRET": {
       "truth": 300,
-      "found": 279,
-      "tp": 279,
+      "found": 287,
+      "tp": 287,
       "fp": 0,
-      "recall": 0.93,
+      "recall": 0.9567,
       "precision": 1
     }
   },
@@ -144,7 +144,7 @@
   "byGenre": {
     "payment-page": {
       "truth": 1700,
-      "recall": 0.9876
+      "recall": 0.9853
     },
     "email": {
       "truth": 1700,
@@ -152,7 +152,7 @@
     },
     "ocr": {
       "truth": 1700,
-      "recall": 0.9565
+      "recall": 0.9588
     }
   }
 }

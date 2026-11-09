@@ -13,6 +13,7 @@ import { MAX_BODY, createHttpServer } from '../src/http/server.ts';
 import { Session } from '../src/core/redact.ts';
 import { createMcpServer } from '../src/mcp/server.ts';
 import * as h from './helpers.ts';
+import { fakePage } from './helpers.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -122,7 +123,7 @@ describe('mcp server (in memory)', () => {
     cdpUrl: 'http://127.0.0.1:9',
     openPage: async (_cdp: string, origin: string) => {
       opened.push(origin);
-      return { page: { url: () => url, fill: async (_s: string, v: string) => void typed.push(v) }, close: async () => void closed.n++ };
+      return { page: fakePage(url, { onFill: (_s, v) => typed.push(v) }), close: async () => void closed.n++ };
     },
   });
 
