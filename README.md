@@ -55,4 +55,10 @@ page text / screenshot text
 - Secrets that are URL-encoded or otherwise re-encoded in the page text are not recognised.
 - Redaction is a filter on text. It does not stop a page from showing the value in an image the model reads.
 
+## Libraries and tools
+
+@modelcontextprotocol/sdk 1.32.2 (MCP server), playwright-core 1.65.0 (drives the locally installed Chrome for `fill` and the browser test), TypeScript 7.0.2, Node's built-in test runner and `node:crypto`, `node:http`. All code in this repository was written during the hackathon window; no templates or own pre-hackathon libraries.
+
+Parts of the code and docs were written with AI coding assistants and reviewed and tested by the team.
+
 License: MIT.
